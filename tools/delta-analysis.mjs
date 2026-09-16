@@ -4,8 +4,7 @@ import { Track } from '../src/sim/track.js';
 import { MuseSession } from '../src/game/session.js';
 
 const track = new Track('harbor-ring');
-const fast = process.argv.includes('--fast');
-const session = new MuseSession(track, { mode: 'practice', laps: 2, fastLine: fast });
+const session = new MuseSession(track, { mode: 'practice', laps: 2, fastLine: !process.argv.includes('--full'), driverMode: 'QUALIFYING' });
 session.start({});
 const dt = 1 / 120;
 let steps = 0;

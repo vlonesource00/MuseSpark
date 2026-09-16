@@ -28,7 +28,10 @@ export class MuseSession {
     this.laps = opts.laps ?? 3;
     this.field = opts.field ?? 6;
     this.aggression = opts.aggression ?? 0.72;
-    this.fastLine = !!opts.fastLine;
+    // Fast line is the race line: equal theory (76.22 vs 76.17) but tracks
+    // clean; full-res refinement creates cuts the controller can't hold.
+    // Realized pace selects the line, not theory. --full reverts to experiment.
+    this.fastLine = opts.fastLine ?? true;
     const built = buildLine(track, this.classId, this.fastLine);
     this.line = built.line; this.envelope = built.envelope; this.solution = built.solution; this.spec = built.spec;
     this.theoreticalLap = built.line.theoreticalLap;
