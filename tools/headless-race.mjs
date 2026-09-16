@@ -22,7 +22,10 @@ const max = aiMs.at(-1) ?? 0;
 console.log(`finished=${session.phase} time=${session.time.toFixed(1)}s steps=${steps}`);
 console.log(`standings: ${session.standings().map((c) => `${c.name} best=${c.race.bestLap ? c.race.bestLap.toFixed(2) : '-'}`).join(' | ')}`);
 console.log(`contacts=${session.contacts} severe=${session.collisionStats.severeContacts} peakClosing=${(session.collisionStats.peakClosing ?? 0).toFixed(1)}`);
+console.log(`contactBins=${JSON.stringify(session.contactBins)}`);
+console.log(`contactFrames=${session.contactFrames} (Supreme 12-car ref: 926 frames, 0 deep)`);
 console.log(`ai_step_ms mean=${mean.toFixed(3)} p95=${p95.toFixed(3)} max=${max.toFixed(3)} (6 cars, 120Hz step incl physics)`);
 console.log(`supervisor_activations=${session.drivers.map((d) => d.safety.activations).join(',')}`);
+console.log(`supervisor_reasons=${session.drivers.slice(0, 6).map((d) => JSON.stringify(d.safety.counts)).join(' ')}`);
 console.log(`blocked_debt=${session.drivers[0].strategy.blockedDebt.toFixed(2)}s maneuver=${session.drivers[0].debug.maneuver?.type}`);
 if (mean > 8) { console.error('PERF GATE FAILED: mean step too high'); process.exitCode = 1; }

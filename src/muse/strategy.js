@@ -85,6 +85,9 @@ export class StrategyBrain {
     const gap = target.gap;
     const closing = ego.speed - target.speed;
     const cands = [];
+    // (noCatch retired 2026-09-16: instant-closing misfires in corners and
+    // doubled slow-rival grinding via SWITCHBACK; trend variant trapped the
+    // car in wake-offtrack. Patience is handled by DRAFT_NEXT economics.)
     // OUTSIDE MOMENTUM (primary, not fallback)
     {
       const defendOut = post.DEFEND_OUTSIDE + post.MOVE_OUTSIDE * 0.5;
@@ -93,11 +96,14 @@ export class StrategyBrain {
       const J = routeCost + (1 - passP) * 1.6 + defendOut * 0.8 - passP * 1.9 - 0.35;
       cands.push({ type: 'OUTSIDE_MOMENTUM', flank: 'OUTSIDE', passP, J, risk: defendOut > 0.4 ? 'MED' : 'LOW', reason: `outside carry; defendOut ${(defendOut * 100) | 0}%` });
     }
-    // INSIDE DIVE
+    // INSIDE DIVE (gated: no long-range lunges — gap>15m kills it. Lunges
+    // from distance arrive with unsurvivable closing speed: severe contacts.)
     {
       const defendIn = post.DEFEND_INSIDE + post.LATE_DEFEND * 0.4;
       let passP = clamp(0.62 - defendIn * 1.1 - (insideBlocked ? 0.4 : 0), 0.02, 0.9);
-      const J = 0.1 + (1 - passP) * 1.8 + defendIn * 1.0 - passP * 1.7 + (insideBlocked ? 0.9 : 0);
+      const lunge = gap > 15;
+      if (lunge) passP *= 0.3;
+      const J = 0.1 + (1 - passP) * 1.8 + defendIn * 1.0 - passP * 1.7 + (insideBlocked ? 0.9 : 0) + (lunge ? 1.5 : 0);
       cands.push({ type: 'INSIDE_DIVE', flank: 'INSIDE', passP, J, risk: defendIn > 0.4 ? 'HIGH' : 'MED', blocked: insideBlocked, reason: insideBlocked ? `inside BLOCKED (failed before, defendIn ${(defendIn * 100) | 0}%)` : `gap ${gap.toFixed(1)}m defendIn ${(defendIn * 100) | 0}%` });
     }
     // SWITCHBACK (defender compromises exit)

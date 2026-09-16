@@ -154,6 +154,10 @@ export class MuseDriver {
       }
       if (limited < Infinity) targetSpeed = Math.min(targetSpeed, limited);
     }
+    // (Straight-line anti-severe target cut REMOVED 2026-09-16: no severe
+    // reduction, but slowed entries into the pack and quintupled grinding
+    // 146->887 contacts. Severe impacts are lateral turn-in convergence, not
+    // longitudinal cannonballs — wrong mechanism. Tracked future work.)
     // Pursuit steering.
     const lookahead = clamp(6 + car.speed * 0.45, 8, 34);
     const target = plan.at(obs.ego.s + lookahead);

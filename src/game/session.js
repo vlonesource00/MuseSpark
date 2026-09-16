@@ -37,10 +37,12 @@ export class MuseSession {
     this.theoreticalLap = built.line.theoreticalLap;
     this.cars = GRID.map(([name, color], id) => new Vehicle(id, name, color, this.mixed ? CLASS_IDS[(id + CLASS_IDS.indexOf(this.classId)) % CLASS_IDS.length] : this.classId));
     this.drivers = this.cars.map((c, i) => new MuseDriver(i, track, this.line, createEnvelope(c.spec, { fuel: 20 }), {
-      skill: (opts.driverMode ?? 'SPRINT') === 'QUALIFYING' ? 0.995 : 0.955 + (i % 4) * 0.008, aggression: this.aggression, mode: opts.driverMode ?? 'SPRINT', spec: c.spec
+      skill: opts.skills ? opts.skills[i % opts.skills.length] : ((opts.driverMode ?? 'SPRINT') === 'QUALIFYING' ? 0.995 : 0.955 + (i % 4) * 0.008), aggression: this.aggression, mode: opts.driverMode ?? 'SPRINT', spec: c.spec
     }));
     this.player = this.cars[0];
     this.phase = 'menu'; this.time = 0; this.countdown = 0; this.contacts = 0; this.autopilot = true;
+    this.contactBins = {}; // 30s time bins -> contacts (where does the pack rub?)
+    this.contactFrames = 0; // benchmark-style: steps with >=1 contact
     this.collisionStats = { peakClosing: 0, severeContacts: 0 };
     this.reset();
   }
@@ -76,7 +78,13 @@ export class MuseSession {
     });
     const airflow = wakes(cars);
     cars.forEach((c, i) => c.step(dt, this.track, airflow[i]));
-    this.contacts += collisions(cars, this.collisionStats);
+    const stepContacts = collisions(cars, this.collisionStats);
+    this.contacts += stepContacts;
+    if (stepContacts > 0) {
+      const bin = `${Math.floor(this.time / 30) * 30}s`;
+      this.contactBins[bin] = (this.contactBins[bin] ?? 0) + stepContacts;
+      this.contactFrames++;
+    }
     for (const c of cars) {
       const r = c.race;
       const prev = r.progress;
