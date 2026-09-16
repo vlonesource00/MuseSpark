@@ -8,7 +8,9 @@ export const BRAKE_SOURCES = ['NONE', 'PLANNED_BRAKING', 'TRAFFIC_CONFLICT', 'CO
 // Spatial brake event carried through replans (track-space intent, not a stab).
 export function planBrakeEvent(sNow, vNow, targetSpeed, apexS, trackLength) {
   if (targetSpeed >= vNow - 0.5) return null;
-  const decel = 13; // m/s^2 representative GT capability
+  // 10.5, not peak 13: realizable while turning in with margin. The event is
+  // a distance intent; peak pressure still available via urgency override.
+  const decel = 10.5; // m/s^2 representative GT capability
   const dist = Math.max(8, ((vNow * vNow - targetSpeed * targetSpeed) / (2 * decel)));
   const releaseS = apexS - 6;
   const startS = releaseS - dist;

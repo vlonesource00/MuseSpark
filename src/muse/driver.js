@@ -133,12 +133,15 @@ export class MuseDriver {
     let targetSpeed = this.line.speedAt(aheadS) * this.skill * 0.95 * (1 - this.track.wetness * 0.24);
     // Trajectory braking target: min winner speed in near window (safe) blended
     // with braking-distance limit (late). Take the LOWER (safer) of the two.
+    // NOTE (2026-09-16): minNear removal tried twice — both times offtrack
+    // (31s, 65s). It is load-bearing safety for imperfect tracking, not just
+    // coasting. Pace must come from margins/grip/exit, not from removing it.
     if (this.plan?.winner) {
       const w = this.plan.winner;
       let minNear = Infinity;
       for (let i = 0; i < w.points.length; i++) {
         const ds = wrap(w.points[i].s - obs.ego.s + this.track.length * 1.5, this.track.length) - this.track.length * 0.5;
-        if (ds > -5 && ds < 75) minNear = Math.min(minNear, w.speed[i]);
+        if (ds > -5 && ds < 60) minNear = Math.min(minNear, w.speed[i]);
       }
       const dec = 8.0;
       let limited = Infinity;
