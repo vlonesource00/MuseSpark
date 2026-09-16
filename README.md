@@ -8,8 +8,8 @@ wired, measured, tested. No physics advantages. No phantom brakes.
 - **SPRINT stint pace:** 86.17 best, 0.0 off across 3 laps (repeatable)
 - **Control gap:** 8.5s (was 18.1) — tracking solved as a bug class (off-line
   equilibrium); remainder is genuine grip/profile usage
-- **Shared-host official:** 89.82s (SPRINT, pre-acquisition pin); re-run pending
-  at new pin — local host-physics QUALIFYING already 84.725 = native
+- **Shared-host official:** **86.38s** (SPRINT, pin 8a9b6a9), 0 off/dmg/errors;
+  same-day Astra 78.77, pinned Supreme 78.34 (gap 7.6s, was ~11s)
 - **Shared-host official:** **89.82s** (SPRINT), 0 off/dmg/errors; same-day Astra 78.77, pinned Supreme 78.34
 - **Phantom brakes:** 0 samples (unit + headless gates green)
 - **Perf:** 8-car 1.28ms/step (6.5× realtime) — PASS

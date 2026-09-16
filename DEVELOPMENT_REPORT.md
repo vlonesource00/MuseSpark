@@ -88,9 +88,11 @@ all speed-only protocols either deadlock or ram. Tracked future work.
 - Host-physics solo: **86.875** = native 86.875 (parity behavioral).
 - GitHub: https://github.com/vlonesource00/MuseSpark (master, public).
 - Official shared-host race (`headless/race.mjs --subject musespark --laps 2`):
-  **best 89.82** (SPRINT), 0 off, 0 dmg, 0 errors. Same-day Astra: **78.77**.
+  pin c8f7cde → **89.82** (SPRINT), 0 off/dmg/errors. Same-day Astra: **78.77**.
   Pinned refs: Supreme 78.34. Muse trails by ~11s shared — the M2 gap, reproduced
   on host physics. No physics advantage anywhere (host stepped everything).
+- Pin 8a9b6a9 (line acquisition) re-run 2026-09-16: **86.38** shared SPRINT,
+  0/0/0. Gap to same-day Astra now **7.6s**. Local host-physics QUALIFYING 84.725.
 - Benchmark-tree edits (installer-generated, left uncommitted per precedent):
   sandbox/bridges/musespark-bridge.js, index.js (import+branch+registry),
   benchmark/subjects.json (pin). Clone+pin verified: `prepare-subjects --subject
