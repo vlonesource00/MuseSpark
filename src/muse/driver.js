@@ -9,7 +9,7 @@ import { CoupledController } from './mpcc.js';
 import { SafetySupervisor } from './safety.js';
 import { Scheduler } from './scheduler.js';
 import { Telemetry } from './telemetry.js';
-import { observationFromGame, applyCommand } from './types.js';
+import { observationFromGame, applyCommand, thermalMargin } from './types.js';
 
 export class MuseDriver {
   constructor(id, track, line, envelope, opts = {}) {
@@ -19,6 +19,9 @@ export class MuseDriver {
     this.envelope = envelope;
     this.skill = opts.skill ?? 0.97;
     this.mode = opts.mode ?? 'SPRINT';
+    // Pace margin by objective horizon (same plant, different risk):
+    // QUALIFYING attacks at full envelope, SPRINT keeps 2%, ENDURANCE manages.
+    this.paceMargin = this.mode === 'QUALIFYING' ? 1.0 : this.mode === 'ENDURANCE' ? 0.94 : 0.98;
     this.beliefs = new BeliefBank(track.length);
     this.strategy = new StrategyBrain(track.length, { aggression: opts.aggression ?? 0.72, mode: this.mode });
     this.search = new TrajectorySearch(track, line, envelope);
@@ -130,7 +133,9 @@ export class MuseDriver {
     // gating already protect the corner. Braking-limited (late-hard-brake):
     // target = min_ahead sqrt(v_apex^2 + 2*dec*dist), NOT min speed in window.
     const aheadS = obs.ego.s + Math.max(4, car.speed * 0.2);
-    let targetSpeed = this.line.speedAt(aheadS) * this.skill * 0.98 * (1 - this.track.wetness * 0.24);
+    // Thermal adaptation: hot/worn rubber gets a smaller envelope slice.
+    const margin = this.paceMargin * thermalMargin(obs.ego.tyreMax ?? 70, obs.ego.tyreWear ?? 0);
+    let targetSpeed = this.line.speedAt(aheadS) * this.skill * margin * (1 - this.track.wetness * 0.24);
     // Trajectory braking target: pure braking-distance limit (late-hard-brake).
     // target = min_ahead sqrt(apexV^2 + 2*dec*ds). minNear window REMOVED with
     // the latch (2026-09-16): the latch pinned a stale apex 200m ahead and the
@@ -138,12 +143,12 @@ export class MuseDriver {
     // braking on both sides now: target and pedal agree by construction.
     if (this.plan?.winner) {
       const w = this.plan.winner;
-      const dec = 8.0;
+      const dec = 9.0;
       let limited = Infinity;
       for (let i = 0; i < w.points.length; i++) {
         const ds = wrap(w.points[i].s - obs.ego.s + this.track.length * 1.5, this.track.length) - this.track.length * 0.5;
         if (ds < -5 || ds > 170) continue;
-        const apexV = w.speed[i] * this.skill * 0.98;
+        const apexV = w.speed[i] * this.skill * margin;
         const allow = Math.sqrt(apexV * apexV + 2 * dec * Math.max(0, ds));
         if (allow < limited) limited = allow;
       }

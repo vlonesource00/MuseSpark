@@ -26,7 +26,9 @@ export function observationFromGame({ time, dt, car, track, cars, line, mode = '
       id: car.id, x: car.x, z: car.z, vx: car.vx, vz: car.vz, yaw: car.yaw, yawRate: car.yawRate,
       u: car.u, v: car.v, speed: car.speed, slip: Math.atan2(car.v, Math.max(4, Math.abs(car.u))),
       s: cur.s ?? car.s, q: cur.lateral ?? car.lateral, steer: car.steering, throttle: car.controls.throttle,
-      brake: car.controls.brake, fuel: car.fuel, damage: car.damage
+      brake: car.controls.brake, fuel: car.fuel, damage: car.damage,
+      // Thermal state (plant-agnostic scalars): hottest core °C, worst wear 0..1.
+      tyreMax: maxCore(car), tyreWear: maxWear(car)
     },
     trackRef: track,
     track: {
@@ -40,4 +42,25 @@ export function observationFromGame({ time, dt, car, track, cars, line, mode = '
 
 export function applyCommand(car, cmd) {
   car.controls = { steer: cmd.steering, throttle: cmd.throttle, brake: cmd.brake };
+}
+
+function maxCore(car) {
+  try {
+    return Math.max(...car.wheels.map((w) => w.tyre?.core ?? 70));
+  } catch { return 70; }
+}
+
+function maxWear(car) {
+  try {
+    return Math.max(...car.wheels.map((w) => w.tyre?.wear ?? 0));
+  } catch { return 0; }
+}
+
+// Thermal pace derate: mirrors the plant's own tyreGrip falloff
+// (1-((T-85)/105)^2 pressure/load/wear chain) as a pace-margin factor.
+// The DRIVER adapts its margin; the plant is never touched.
+export function thermalMargin(tyreMax, tyreWear = 0) {
+  const temp = 1 - ((Math.max(0, tyreMax - 85) / 105) ** 2) * 0.35;
+  const wear = 1 - Math.min(0.35, tyreWear * 0.35);
+  return Math.min(1, Math.max(0.85, temp * wear));
 }

@@ -3,7 +3,7 @@ import { Track } from '../src/sim/track.js';
 import { MuseSession } from '../src/game/session.js';
 
 const track = new Track('harbor-ring');
-const session = new MuseSession(track, { mode: 'practice', laps: 3, fastLine: process.argv.includes('--fast') });
+const session = new MuseSession(track, { mode: 'practice', laps: 3, fastLine: process.argv.includes('--fast'), driverMode: 'QUALIFYING' });
 console.log(`theoretical=${session.theoreticalLap.toFixed(3)}s initial=${session.solution.initialSeconds.toFixed(3)}s accepted=${session.solution.accepted}`);
 session.start({});
 const dt = 1 / 120;
