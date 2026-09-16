@@ -1,0 +1,20 @@
+{
+  "name": "musespark-racing",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MuseSpark Racing — extreme autonomous racing AI on Astra physical plant (Harbor Ring, GT).",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5174",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 4174",
+    "test": "node --test tests/*.test.js",
+    "test:hotlap": "node tools/headless-hotlap.mjs",
+    "test:racecraft": "node tools/headless-race.mjs",
+    "test:phantom": "node --test tests/phantom-brake.test.js",
+    "profile": "node tools/profile.mjs",
+    "optimize-line": "node tools/optimize-line.mjs"
+  },
+  "dependencies": { "three": "0.166.1" },
+  "devDependencies": { "vite": "5.4.8" }
+}
