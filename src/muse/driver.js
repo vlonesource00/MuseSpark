@@ -203,6 +203,11 @@ export class MuseDriver {
     const cmd = this.controller.update(car, plan, { s: obs.ego.s, lateral: obs.ego.q }, pursuit, targetSpeed, this.envelope, safety, traffic, this.track.length);
     if (safety.emergency) { cmd.throttle = 0; cmd.brake = 1; cmd.source = 'CONTACT_AVOIDANCE'; }
     this.brakeSource = cmd.source;
+    // Execution-gap audit exposure (read-only snapshots, no behavior change).
+    const _bev = this.controller.brakeEvent;
+    this.debug.pursuit = pursuit;
+    this.debug.cmd = { steer: cmd.steer, throttle: cmd.throttle, brake: cmd.brake, source: cmd.source, coasting: cmd.coasting };
+    this.debug.brakeEvent = _bev ? { startS: _bev.startS, releaseS: _bev.releaseS, apexS: _bev.apexS, targetMinimumSpeed: _bev.targetMinimumSpeed, source: _bev.source } : null;
     applyCommand(car, { steering: cmd.steer, throttle: cmd.throttle, brake: cmd.brake });
     // Telemetry @ decimated 60Hz to bound memory.
     if ((this.teleCount = (this.teleCount || 0) + 1) % 2 === 0) {
