@@ -33,15 +33,14 @@ if (!index.includes(importLine)) {
   );
   console.log('INDEX import added');
 }
-const branchLine = `    } else if (id === 'musespark') {\n      bridges[index] = createMuseBridge({ candidate: candidatesList.find((entry) => entry.id === id) ?? MUSE_CANDIDATE, cars, hostTrack, shadowTrack, index });\n    }`;
 if (!index.includes(`id === 'musespark'`)) {
   index = index.replace(
     `    } else if (id === 'gemini-nmpcc') {`,
-    `${branchLine} else if (id === 'gemini-nmpcc') {`
+    `    } else if (id === 'musespark') {\n      bridges[index] = createMuseBridge({ candidate: candidatesList.find((entry) => entry.id === id) ?? MUSE_CANDIDATE, cars, hostTrack, shadowTrack, index });\n    } else if (id === 'gemini-nmpcc') {`
   );
   console.log('INDEX branch added');
 }
-if (!index.includes('MUSE_CANDIDATE,')) {
+if (!index.includes('\n  MUSE_CANDIDATE,')) {
   index = index.replace(
     `export const ALL_KNOWN_CANDIDATES = Object.freeze([\n  ...CANDIDATES_5ARCH,`,
     `export const ALL_KNOWN_CANDIDATES = Object.freeze([\n  MUSE_CANDIDATE,\n  ...CANDIDATES_5ARCH,`
@@ -50,19 +49,17 @@ if (!index.includes('MUSE_CANDIDATE,')) {
 }
 fs.writeFileSync(indexPath, index);
 
-// 3. subjects.json entry (idempotent by id).
-const subjects = JSON.parse(fs.readFileSync(subjectsPath, 'utf8'));
-if (!subjects.subjects.some((s) => s.id === 'musespark')) {
-  subjects.subjects.push({
-    id: 'musespark',
-    label: 'MuseSpark',
-    repoUrl: 'https://github.com/vlonesource00/MuseSpark.git',
-    branch: 'master',
-    commit,
-    testNotes: 'Muse global-optimum + belief + strategy + trajectory + coupled MPCC + safety. Local harness: tools/bridge-smoke.mjs (shared-mode smoke + host-physics solo pace).',
-    tests: []
-  });
-  fs.writeFileSync(subjectsPath, `${JSON.stringify(subjects, null, 2)}\n`);
+// 3. subjects.json entry — TEXTUAL append preserving the file's own style
+// (never JSON round-trip: it reformats 300+ unrelated lines).
+let subjectsRaw = fs.readFileSync(subjectsPath, 'utf8');
+if (!subjectsRaw.includes(`"id": "musespark"`)) {
+  const entry = `    ,\n    {\n      "id": "musespark",\n      "label": "MuseSpark",\n      "repoUrl": "https://github.com/vlonesource00/MuseSpark.git",\n      "branch": "master",\n      "commit": "${commit}",\n      "testNotes": "Muse global-optimum + belief + strategy + trajectory + coupled MPCC + safety. Local harness: tools/bridge-smoke.mjs (shared-mode smoke + host-physics solo pace).",\n      "tests": []\n    }\n  ]\n}`;
+  const tail = `\n  ]\n}`;
+  if (!subjectsRaw.trimEnd().endsWith(']')) throw new Error('unexpected subjects.json tail');
+  subjectsRaw = subjectsRaw.trimEnd().slice(0, -tail.length) + entry + '\n';
+  fs.writeFileSync(subjectsPath, subjectsRaw);
+  // Validate JSON survived.
+  JSON.parse(fs.readFileSync(subjectsPath, 'utf8'));
   console.log(`SUBJECTS musespark pinned @ ${commit.slice(0, 12)}`);
 } else {
   console.log('SUBJECTS musespark already registered');
