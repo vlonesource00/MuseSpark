@@ -35,15 +35,15 @@ Measured (Windows, Node 22, fastLine):
 - No per-frame garbage by design: preallocated 20-candidate pool, scratch
   Float64Arrays, no map/filter/sort in hot loops (sorts only over ≤13 scored).
 
-## BENCHMARK_INTEGRATION.md
+## BENCHMARK_INTEGRATION.md (DONE 2026-09-16 — status, not plan)
 
-Do NOT modify `../benchmark` yet. When credible, add `tools/benchmark-bridge.mjs`:
-
-```
-Benchmark host state → MuseObservation (via types.observationFromGame shape)
-MuseDriver.update() → MuseCommand → Benchmark controls {steer,throttle,brake}
-```
-
-Core AI unchanged; only the adapter maps Benchmark's shared Vehicle/track to the
-observation contract. No benchmark-specific physics, grip, power, or collisions.
-Promote only after solo <79 + clean pack metrics + phantom-zero + perf gate.
+Plant parity PROVEN: all 7 sim files byte-identical to benchmark host plant.
+`bridge/musespark-bridge.js` (shadow pattern, host owns all physics; core AI
+unchanged) + `tools/bridge-smoke.mjs` (local verification vs real host engine,
+benchmark tree untouched) + `tools/install-benchmark-bridge.mjs` (mechanical
+registration: bridge copy + index.js import/branch/registry + subjects.json pin).
+Verified: prepare-subjects clone+pin OK; official shared-host SPRINT 89.82,
+0 off/dmg/errors; same-day Astra 78.77; host-physics QUALIFYING 86.875 =
+native. Benchmark-tree edits left uncommitted per precedent (files listed in
+DEVELOPMENT_REPORT Checkpoint 5). No benchmark-specific physics anywhere —
+host stepped everything; shadows only carry state.
