@@ -56,11 +56,15 @@ function maxWear(car) {
   } catch { return 0; }
 }
 
-// Thermal pace derate: mirrors the plant's own tyreGrip falloff
-// (1-((T-85)/105)^2 pressure/load/wear chain) as a pace-margin factor.
+// Thermal pace derate: mirrors the plant's OWN tyreGrip falloff
+// (1-((T-85)/105)^2, floor .65) as a pace-margin factor, steepened (^1.5)
+// for transient headroom — the limit leaves nothing for bumps/overshoot, and
+// a 5% grip loss at zero headroom spins (lap-2 kink, 2026-09-16). Cool rubber
+// is unaffected (1.0^1.5 = 1.0): lap-1 attack pace is protected.
 // The DRIVER adapts its margin; the plant is never touched.
 export function thermalMargin(tyreMax, tyreWear = 0) {
-  const temp = 1 - ((Math.max(0, tyreMax - 85) / 105) ** 2) * 0.35;
+  const plant = Math.min(1, Math.max(0.65, 1 - ((Math.max(0, tyreMax - 85) / 105) ** 2)));
+  const temp = plant ** 1.5;
   const wear = 1 - Math.min(0.35, tyreWear * 0.35);
-  return Math.min(1, Math.max(0.85, temp * wear));
+  return Math.min(1, Math.max(0.5, temp * wear));
 }

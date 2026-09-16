@@ -7,11 +7,13 @@ test('thermalMargin: cool rubber full pace, hot/worn derates bounded', () => {
   assert.equal(thermalMargin(70, 0), 1);
   assert.equal(thermalMargin(85, 0), 1);
   const warm = thermalMargin(100, 0);
-  assert.ok(warm < 1 && warm >= 0.85, `warm=${warm}`);
+  assert.ok(warm < 1 && warm > 0.9, `warm=${warm}`);
+  const hot = thermalMargin(114, 0); // lap-3 rear: must bite (~0.88)
+  assert.ok(hot < 0.93 && hot > 0.8, `hot=${hot}`);
   const worn = thermalMargin(70, 0.5);
-  assert.ok(worn < 1 && worn >= 0.85, `worn=${worn}`);
+  assert.ok(worn < 1 && worn >= 0.5, `worn=${worn}`);
   const worst = thermalMargin(170, 1);
-  assert.ok(worst >= 0.85 && worst < 1, `worst=${worst}`);
+  assert.ok(worst >= 0.4 && worst < 1, `worst=${worst}`);
 });
 
 test('observation carries plant-agnostic thermal scalars', () => {

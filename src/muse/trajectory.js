@@ -110,15 +110,25 @@ export class TrajectorySearch {
     const t0 = performance.now ? performance.now() : Date.now();
     const detail = opts.detail ?? 1; // adaptive compute 0..2
     const egoQ = opts.egoQ ?? 0;
+    // Clear-air detection: no maneuver and no rival within 45m. Then the
+    // optimum is the global line — no eval offsets, no reason to leave it.
+    let trafficNear = maneuver.flank !== 'NONE';
+    if (!trafficNear && rivals) {
+      for (const r of rivals) {
+        const ds = Math.abs(wrap(r.s - s0 + this.track.length * 1.5, this.track.length) - this.track.length * 0.5);
+        if (ds < 45) { trafficNear = true; break; }
+      }
+    }
     const ampSet = maneuver.flank === 'OUTSIDE' ? [3.2, 2.0, 0] : maneuver.flank === 'INSIDE' ? [-3.2, -2.0, 0] : maneuver.flank === 'SWITCHBACK' ? [2.4, -2.4, 0] : [1.6, -1.6, 0];
     const specs = [];
-    // STAGE 0 warm start
-    if (this.prevWinner) specs.push({ flank: this.prevWinner.flank, amp: this.prevWinner.amp ?? 0, type: this.prevWinner.type, warm: true });
-    const count = detail === 0 ? 5 : detail === 1 ? 9 : 13;
-    const flanks = maneuver.flank === 'NONE' ? ['NONE', 'OUTSIDE', 'INSIDE'] : [maneuver.flank, 'NONE', maneuver.flank === 'OUTSIDE' ? 'INSIDE' : 'OUTSIDE'];
+    // STAGE 0 warm start (scalar signature — pool memory is reused, never held)
+    if (this.prevSig && trafficNear) specs.push({ flank: this.prevSig.flank, amp: this.prevSig.amp ?? 0, type: this.prevSig.type, warm: true });
+    const count = !trafficNear ? 2 : detail === 0 ? 5 : detail === 1 ? 9 : 13;
+    const flanks = !trafficNear ? ['NONE'] : maneuver.flank === 'NONE' ? ['NONE', 'OUTSIDE', 'INSIDE'] : [maneuver.flank, 'NONE', maneuver.flank === 'OUTSIDE' ? 'INSIDE' : 'OUTSIDE'];
     let si = 0;
     for (const f of flanks) {
-      const amps = f === maneuver.flank ? ampSet : [f === 'OUTSIDE' ? 2.6 : f === 'INSIDE' ? -2.6 : 0];
+      // Clear air: the line, the whole line — no offset evals to get stranded on.
+      const amps = !trafficNear ? [0] : f === maneuver.flank ? ampSet : [f === 'OUTSIDE' ? 2.6 : f === 'INSIDE' ? -2.6 : 0];
       for (const a of amps) {
         if (specs.length >= count) break;
         if (specs.some((s) => s.flank === f && Math.abs(s.amp - a) < 0.3)) continue;
@@ -158,6 +168,7 @@ export class TrajectorySearch {
     finalists.sort((a, b) => a.value - b.value);
     const winner = finalists[0];
     this.prevWinner = winner;
+    this.prevSig = { flank: winner.flank, amp: winner.amp ?? 0, type: winner.type };
     this.stats.screened = scored.length;
     this.stats.finalists = finalists.length;
     this.stats.ms = (performance.now ? performance.now() : Date.now()) - t0;

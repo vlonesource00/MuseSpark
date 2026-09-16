@@ -166,8 +166,27 @@ export class MuseDriver {
     const dist2 = dx * dx + dz * dz;
     const slip = Math.atan2(car.v, Math.max(4, car.u));
     const pathHere = plan.at(obs.ego.s);
-    const trackingError = obs.ego.q - (pathHere.offset ?? 0);
-    const trackingCorrection = clamp(-Math.atan2(trackingError * 0.5, Math.max(14, car.speed)), -0.04, 0.04);
+    // Tracking reference: the GLOBAL LINE in clear air. Measuring error
+    // against the ego-anchored plan reads ~zero by construction and strands
+    // the car in a self-consistent off-line equilibrium (300m at 8m off,
+    // 2026-09-16). In traffic the maneuver plan is the correct reference.
+    let rivalNear = maneuver.flank !== 'NONE';
+    if (!rivalNear) {
+      for (const r of rivals) {
+        const ds = Math.abs(wrap(r.s - obs.ego.s + this.track.length * 1.5, this.track.length) - this.track.length * 0.5);
+        if (ds < 45) { rivalNear = true; break; }
+      }
+    }
+    const refQ = !rivalNear ? this.line.offsetAt(obs.ego.s) : (pathHere.offset ?? 0);
+    const trackingError = obs.ego.q - refQ;
+    // Rejoin authority scales with available grip AND shrinks with speed
+    // (closing 4m over 200m at 40m/s needs 0.02 rad, not 0.06 — full cap at
+    // speed spun the car: slip 0.29→1.24), and halves on sliding tires.
+    const gripAuthority = (1 - (this.track.wetness ?? 0) * 0.4) * thermalMargin(obs.ego.tyreMax ?? 70, obs.ego.tyreWear ?? 0);
+    const rejoinCap = clamp(1.4 / Math.max(14, car.speed), 0.02, 0.06) * gripAuthority * (Math.abs(slip) > 0.09 ? 0.5 : 1);
+    const trackingCorrection = rivalNear
+      ? clamp(-Math.atan2(trackingError * 0.5, Math.max(14, car.speed)), -0.04, 0.04)
+      : clamp(-Math.atan2(trackingError * 0.6, Math.max(14, car.speed)), -rejoinCap, rejoinCap);
     const middle = plan.at(obs.ego.s + 3), after = plan.at(obs.ego.s + 6);
     const localCurvature = pathCurvature(pathHere, middle, after);
     const rotation = clamp((localCurvature * car.speed - car.yawRate) * this.spec.wheelbase / Math.max(8, car.speed) * 0.7, -0.03, 0.03);
