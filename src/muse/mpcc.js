@@ -8,9 +8,9 @@ export const BRAKE_SOURCES = ['NONE', 'PLANNED_BRAKING', 'TRAFFIC_CONFLICT', 'CO
 // Spatial brake event carried through replans (track-space intent, not a stab).
 export function planBrakeEvent(sNow, vNow, targetSpeed, apexS, trackLength) {
   if (targetSpeed >= vNow - 0.5) return null;
-  // 10.5, not peak 13: realizable while turning in with margin. The event is
+  // 9.0, not peak 13: realizable while turning in with margin. The event is
   // a distance intent; peak pressure still available via urgency override.
-  const decel = 10.5; // m/s^2 representative GT capability
+  const decel = 9.0; // m/s^2 representative GT capability
   const dist = Math.max(8, ((vNow * vNow - targetSpeed * targetSpeed) / (2 * decel)));
   const releaseS = apexS - 6;
   const startS = releaseS - dist;
@@ -79,28 +79,36 @@ export class CoupledController {
   update(car, plan, current, pursuit, targetSpeed, envelope, safety, traffic, trackLength = 2705) {
     const t0 = performance.now ? performance.now() : Date.now();
     const SPEC = this.spec;
-    // Spatial brake events are track-space intents: latch the EARLIEST startS
-    // and never chase it forward as speed falls. Recreate only for a genuinely
-    // new corner (apex moved far AND target much lower) or when no event.
-    const cornerAhead = targetSpeed < car.speed - 1.2;
-    const planApex = plan.apexS ?? current.s + 60;
-    if (cornerAhead) {
-      const needNew = !this.brakeEvent ||
-        (Math.abs(planApex - this.brakeEvent.apexS) > 60 && targetSpeed < this.brakeEvent.targetMinimumSpeed - 3);
-      if (needNew) {
-        // Compute from a conservative entry speed so the zone starts early enough.
-        const entryV = Math.max(car.speed, targetSpeed + 6);
-        this.brakeEvent = planBrakeEvent(current.s, entryV, targetSpeed, planApex, 5400);
-        if (this.brakeEvent && traffic && traffic.hardConflict) this.brakeEvent.source = 'TRAFFIC_CONFLICT';
-      } else {
-        // Refresh target/apex without moving start later (take earliest).
-        this.brakeEvent.targetMinimumSpeed = Math.min(this.brakeEvent.targetMinimumSpeed, targetSpeed);
-        this.brakeEvent.apexS = planApex;
+    // Spatial braking is a PURE FUNCTION of (s, v, plan) — no latched state.
+    // allow(s) = min_ahead sqrt(apexV^2 + 2*dec*ds). Overspeed vs the driver
+    // target brakes with PLANNED_BRAKING cause. Nothing to carry, nothing to
+    // go stale (the latch pinned apex 200m ahead and sailed past corners).
+    const DEC = 8.5;
+    const wrapD = (a, b) => ((a - b) % trackLength + trackLength * 1.5) % trackLength - trackLength * 0.5;
+    let apexV = Infinity, apexS = current.s + 60;
+    const w = plan.winner;
+    if (w && w.speed) {
+      for (let i = 0; i < w.points.length; i++) {
+        const ds = wrapD(w.points[i].s, current.s);
+        if (ds < -5 || ds > 170) continue;
+        const av = w.speed[i];
+        if (av < apexV) { apexV = av; apexS = w.points[i].s; }
       }
     }
-    if (!cornerAhead && this.brakeEvent && car.speed < this.brakeEvent.targetMinimumSpeed + 1.5) {
-      this.brakeEvent = null;
-    }
+    if (apexV === Infinity) { apexV = targetSpeed; }
+    // Explanation carrier only (telemetry/engineer), recomputed every tick.
+    const peakDec = 13;
+    const zoneDist = Math.max(8, ((car.speed * car.speed - apexV * apexV) / (2 * peakDec)));
+    const releaseS = apexS - 6;
+    this.brakeEvent = (apexV < car.speed - 1.2)
+      ? {
+          startS: releaseS - zoneDist, targetDeceleration: peakDec,
+          peakPressure: clamp((car.speed - apexV) / 18, 0.35, 1),
+          trailStartS: releaseS - zoneDist * 0.35, releaseS,
+          targetMinimumSpeed: apexV, apexS, throttlePickupS: apexS + 4,
+          source: traffic && traffic.hardConflict ? 'TRAFFIC_CONFLICT' : 'PLANNED_BRAKING'
+        }
+      : null;
     // MPCC-style rollout over steer corrections x longitudinal bias (15).
     let best = Infinity, bestCorr = 0, bestBias = 0;
     const v0 = Math.max(3, car.speed);
@@ -139,24 +147,18 @@ export class CoupledController {
     const steerCmd = clamp((pursuit + bestCorr) / SPEC.steeringLock, -1, 1);
     this.steer = damp(this.steer, steerCmd, 11, 1 / 60);
     // Longitudinal decision with causal brake gate.
-    // Hard rule: large overspeed with an active spatial event => full braking
-    // regardless of trail shaping (late-hard-brake, not gentle drag).
+    // targetSpeed already IS the braking-distance profile (driver). Overspeed
+    // vs target brakes hard (late-hard-brake); at/below target the car drives.
+    // Cause is always explicit — no phantom braking possible on a clear road
+    // because target >= cruise speed there.
     const err = targetSpeed - car.speed;
     const ayDemand = car.speed * car.yawRate;
+    const overspeed = car.speed - targetSpeed;
     let gate = { allowed: false, source: 'NONE', pressure: 0 };
-    const spatial = brakeNeeded(this.brakeEvent, current.s, car.speed, targetSpeed, trackLength);
     if (safety && safety.emergency) gate = { allowed: true, source: 'CONTACT_AVOIDANCE', pressure: 1 };
     else if (traffic && traffic.hardConflict && err < -1) gate = { allowed: true, source: 'TRAFFIC_CONFLICT', pressure: clamp(-err * 0.25, 0.3, 1) };
-    else if (spatial.need) {
-      const urgency = clamp(-err * 0.18, 0, 1);
-      gate = { allowed: true, source: this.brakeEvent.source, pressure: clamp(Math.max(spatial.pressure, urgency), 0.25, 1) };
-    } else if (this.brakeEvent && err < -6) {
-      // Approaching a latched zone fast: brake only when the zone is near
-      // (within ~45m). Far-away corners must NOT trigger early braking —
-      // the braking-limited target already handles the approach.
-      const dStart = ((((current.s - this.brakeEvent.startS) % trackLength) + trackLength * 1.5) % trackLength) - trackLength * 0.5;
-      if (dStart > -45) gate = { allowed: true, source: this.brakeEvent.source, pressure: clamp(-err * 0.2, 0.4, 1) };
-    } else if (Math.abs(current.lateral) > 7.5) gate = { allowed: true, source: 'TRACK_LIMIT_AVOIDANCE', pressure: 0.5 };
+    else if (overspeed > 0.5 && this.brakeEvent) gate = { allowed: true, source: this.brakeEvent.source, pressure: clamp(0.4 + overspeed / 12, 0.4, 1) };
+    else if (Math.abs(current.lateral) > 7.5) gate = { allowed: true, source: 'TRACK_LIMIT_AVOIDANCE', pressure: 0.5 };
     const pedals = musePedals(err, envelope, car.speed, ayDemand, gate);
     this.lastSource = pedals.source;
     this.ms = (performance.now ? performance.now() : Date.now()) - t0;

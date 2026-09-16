@@ -130,33 +130,24 @@ export class MuseDriver {
     // gating already protect the corner. Braking-limited (late-hard-brake):
     // target = min_ahead sqrt(v_apex^2 + 2*dec*dist), NOT min speed in window.
     const aheadS = obs.ego.s + Math.max(4, car.speed * 0.2);
-    let targetSpeed = this.line.speedAt(aheadS) * this.skill * 0.95 * (1 - this.track.wetness * 0.24);
-    // Trajectory braking target: min winner speed in near window (safe) blended
-    // with braking-distance limit (late). Take the LOWER (safer) of the two.
-    // NOTE (2026-09-16): minNear removal tried twice — both times offtrack
-    // (31s, 65s). It is load-bearing safety for imperfect tracking, not just
-    // coasting. Pace must come from margins/grip/exit, not from removing it.
+    let targetSpeed = this.line.speedAt(aheadS) * this.skill * 0.98 * (1 - this.track.wetness * 0.24);
+    // Trajectory braking target: pure braking-distance limit (late-hard-brake).
+    // target = min_ahead sqrt(apexV^2 + 2*dec*ds). minNear window REMOVED with
+    // the latch (2026-09-16): the latch pinned a stale apex 200m ahead and the
+    // window+fallback guards conspired to sail past corners. Pure-function
+    // braking on both sides now: target and pedal agree by construction.
     if (this.plan?.winner) {
       const w = this.plan.winner;
-      let minNear = Infinity;
-      for (let i = 0; i < w.points.length; i++) {
-        const ds = wrap(w.points[i].s - obs.ego.s + this.track.length * 1.5, this.track.length) - this.track.length * 0.5;
-        if (ds > -5 && ds < 60) minNear = Math.min(minNear, w.speed[i]);
-      }
       const dec = 8.0;
       let limited = Infinity;
       for (let i = 0; i < w.points.length; i++) {
         const ds = wrap(w.points[i].s - obs.ego.s + this.track.length * 1.5, this.track.length) - this.track.length * 0.5;
-        if (ds < -5 || ds > 160) continue;
-        const apexV = w.speed[i] * this.skill * 0.95;
+        if (ds < -5 || ds > 170) continue;
+        const apexV = w.speed[i] * this.skill * 0.98;
         const allow = Math.sqrt(apexV * apexV + 2 * dec * Math.max(0, ds));
         if (allow < limited) limited = allow;
       }
-      let combo = targetSpeed;
-      if (minNear < Infinity) combo = Math.min(combo, minNear * this.skill * 0.95 + 0.4);
-      if (limited < Infinity) combo = Math.min(combo, limited + 0.3);
-      // Safer of the two dominates: use min (early enough to stay clean).
-      targetSpeed = Math.min(targetSpeed, combo);
+      if (limited < Infinity) targetSpeed = Math.min(targetSpeed, limited);
     }
     // Pursuit steering.
     const lookahead = clamp(6 + car.speed * 0.45, 8, 34);
