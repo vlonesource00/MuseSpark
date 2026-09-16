@@ -99,3 +99,21 @@ all speed-only protocols either deadlock or ram. Tracked future work.
 **Next:** M2 pace gap (mid-corner grip usage, full-line trackability, exit
 optimization) and M3 conversion cost (clean alongside→clear without grinding).
 No architecture churn without delta evidence.
+
+## Checkpoint 6 — Line acquisition: 86.88 → 84.73 (2026-09-16)
+
+**Root cause (the big one):** the car spent 300m per lap 6-9m off the global
+line with zero tracking error. Ego-anchored trajectory geometry + error measured
+against the anchored plan = self-consistent off-line equilibrium (the plan
+starts where the car is, the car follows the plan start). Fix: in clear air,
+single amp-0 candidate + tracking error vs GLOBAL LINE with speed/grip/slip-
+scaled rejoin authority (1.4/v cap, thermal+wet scaling, halve above 0.09 slip).
+**Results:** QUALIFYING best **84.725** valid (off 0.41→6.59 across fade laps),
+SPRINT stint **86.17** clean (off 0.0). Control gap 10.7→**8.5s**. 20/20, phantom 0.
+Thermal curve steepened (^1.5) for hot-lap integrity; mode-gated steepness tried
+and reverted (pack effects were chaos-amplified noise, no dominant direction).
+**Regression watched:** 6-car frames 1917→~3800 with acquisition on. Pack
+dynamics are chaos-amplified (identical inputs, 2x swings from small changes);
+pack A/B needs multi-scenario averaging, not single runs. M3 lateral-resolution
+work remains THE open racecraft problem. Bridge re-verified: host pace 84.725
+= native, 0 errors.
