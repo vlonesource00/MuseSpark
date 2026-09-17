@@ -6,6 +6,8 @@ import { BeliefBank } from './belief.js';
 import { StrategyBrain } from './strategy.js';
 import { TrajectorySearch } from './trajectory.js';
 import { CoupledController } from './mpcc.js';
+import { PredictiveController } from './predictive.js';
+import { createVehicleModel } from './vehicle-model.js';
 import { SafetySupervisor } from './safety.js';
 import { Scheduler } from './scheduler.js';
 import { Telemetry } from './telemetry.js';
@@ -25,7 +27,10 @@ export class MuseDriver {
     this.beliefs = new BeliefBank(track.length);
     this.strategy = new StrategyBrain(track.length, { aggression: opts.aggression ?? 0.72, mode: this.mode });
     this.search = new TrajectorySearch(track, line, envelope);
-    this.controller = new CoupledController(opts.spec);
+    this.controller = new CoupledController(opts.spec); // sampling baseline: preserved, A/B + fallback reference
+    this.model = createVehicleModel(opts.spec, envelope);
+    this.mpc = new PredictiveController(opts.spec, envelope, this.model, opts.mpc ?? {});
+    this.controllerMode = opts.controller ?? 'sampling'; // 'mpc' | 'sampling'
     this.safety = new SafetySupervisor(track);
     this.scheduler = new Scheduler();
     this.telemetry = new Telemetry();
@@ -39,6 +44,7 @@ export class MuseDriver {
     this.wasRecovering = false;
     this.brakeSource = 'NONE';
     this.theoreticalLap = line.theoreticalLap;
+    this.transientLap = opts.transientLap ?? line.theoreticalLap;
     this.realizedLap = null;
     this.spec = opts.spec;
   }
@@ -198,11 +204,40 @@ export class MuseDriver {
     if (Math.abs(slip) > 0.2) targetSpeed = Math.min(targetSpeed, car.speed * (1 - clamp((Math.abs(slip) - 0.2) * 1.1, 0, 0.45)));
     this.targetSpeed = targetSpeed;
     this.state = safety.emergency ? 'COLLISION AVOIDANCE' : (maneuver.type ?? 'PACE');
-    // Coupled control (MPCC 40Hz cached correction, pedals every tick).
+    // Coupled control: MPC (genuine joint steer+force optimization) or the
+    // preserved sampling baseline. MPC failure degrades to previous-solution
+    // hold inside predictive.js — never a stab, never a block.
     const traffic = { hardConflict: !!(this.plan?.winner?.hardConflict) };
-    const cmd = this.controller.update(car, plan, { s: obs.ego.s, lateral: obs.ego.q }, pursuit, targetSpeed, this.envelope, safety, traffic, this.track.length);
-    if (safety.emergency) { cmd.throttle = 0; cmd.brake = 1; cmd.source = 'CONTACT_AVOIDANCE'; }
-    this.brakeSource = cmd.source;
+    let cmd, mpcInfo = null;
+    // Launch aberration guard: below 12 m/s the MPC cost landscape is
+    // degenerate (signed/unsigned cusps, huge relative errors) and warm-start
+    // garbage can yank full lock (s=12 spin). The proven sampling controller
+    // owns the launch; MPC engages at speed. Cost: ~1.5s of 85s lap unaffected.
+    if (this.controllerMode === 'mpc' && this.plan?.winner && car.speed >= 12) {
+      const w = this.plan.winner;
+      const sm = this.skill * margin;
+      const vRefAt = (s) => {
+        let bd = Infinity, bv = null;
+        for (let k = 0; k < w.points.length; k++) {
+          const d = Math.abs(((w.points[k].s - s) % this.track.length + this.track.length) % this.track.length);
+          const dd = Math.min(d, this.track.length - d);
+          if (dd < bd) { bd = dd; bv = w.speed[k]; }
+        }
+        return (bd < 14 && bv !== null ? bv : this.line.speedAt(s)) * sm;
+      };
+      const muScale = thermalMargin(obs.ego.tyreMax ?? 70, obs.ego.tyreWear ?? 0);
+      const mpc = this.mpc.update(car, plan, vRefAt, { s: obs.ego.s, lateral: obs.ego.q }, targetSpeed, this.envelope, safety, traffic, this.track.length, muScale, car.gear || 0, car.rpm || 0, this.skill * margin);
+      cmd = { steer: mpc.steer, throttle: mpc.throttle, brake: mpc.brake };
+      this.brakeSource = mpc.source;
+      mpcInfo = mpc.mpc;
+      this.debug.mpc = mpcInfo;
+      if (safety.emergency) { cmd.throttle = 0; cmd.brake = 1; this.brakeSource = 'CONTACT_AVOIDANCE'; }
+    } else {
+      const scmd = this.controller.update(car, plan, { s: obs.ego.s, lateral: obs.ego.q }, pursuit, targetSpeed, this.envelope, safety, traffic, this.track.length);
+      cmd = scmd;
+      if (safety.emergency) { cmd.throttle = 0; cmd.brake = 1; cmd.source = 'CONTACT_AVOIDANCE'; }
+      this.brakeSource = cmd.source;
+    }
     // Execution-gap audit exposure (read-only snapshots, no behavior change).
     const _bev = this.controller.brakeEvent;
     this.debug.pursuit = pursuit;
@@ -225,6 +260,27 @@ export class MuseDriver {
     this.debug.beliefs = this.beliefs.map.size;
     this.debug.explanation = this.strategy.explanation;
     this.debug.safety = safety;
+    // Race engineer: T-level accounting + current loss source (cheap online
+    // heuristic mirroring the audit classifier's priority for top classes).
+    {
+      const b = car.controls.brake, t = car.controls.throttle;
+      const v = car.speed, ref = this.line.speedAt(obs.ego.s);
+      let loss = 'ON_PACE';
+      if (Math.abs(obs.ego.q) > edge + 0.5 || Math.abs(slip) > 0.35) loss = 'INCIDENT';
+      else if (b > 0.2 && v < ref - 1.0) loss = 'BRAKING';
+      else if (t < 0.6 && v < ref - 0.5) loss = 'BRAKE_RELEASE';
+      else if (t < 0.95 && v < ref - 0.5) loss = Math.abs(obs.ego.q) > 3 ? 'MID_CORNER' : 'THROTTLE_PICKUP';
+      else if (v < ref - 1.0) loss = 'MID_CORNER';
+      else if (v < ref - 0.4) loss = 'CONTROL';
+      this.debug.lossSource = loss;
+      this.debug.tLevels = {
+        geometric: +this.theoreticalLap.toFixed(3),
+        transient: +this.transientLap.toFixed(3),
+        actual: this.realizedLap ? +this.realizedLap.toFixed(3) : null,
+        optimism: +(this.transientLap - this.theoreticalLap).toFixed(3),
+        controlGap: this.realizedLap ? +(this.realizedLap - this.transientLap).toFixed(3) : null
+      };
+    }
   }
   recover(car, cars, current, dt) {
     const edge = this.track.halfWidth;

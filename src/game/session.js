@@ -5,7 +5,7 @@ import { Vehicle, wakes, collisions } from '../sim/vehicle.js';
 import { wrap, clamp } from '../sim/math.js';
 import { carSpecFor, CLASS_IDS } from '../sim/car-specs.js';
 import { createEnvelope } from '../muse/envelope.js';
-import { optimizeGlobal, GlobalLine } from '../muse/global-opt.js';
+import { optimizeGlobal, GlobalLine, lapTimeProfile } from '../muse/global-opt.js';
 import { MuseDriver } from '../muse/driver.js';
 
 const GRID = [['MUSE-01', '#e8482d'], ['RIVAL-02', '#d4dbd9'], ['RIVAL-03', '#356653'], ['RIVAL-04', '#d7a32e'], ['RIVAL-05', '#2e515f'], ['RIVAL-06', '#a0a399'], ['RIVAL-07', '#4058a0'], ['RIVAL-08', '#d5c6a8']];
@@ -14,9 +14,23 @@ export function buildLine(track, classId = 'gt', fast = false) {
   const spec = carSpecFor(classId);
   const envelope = createEnvelope(spec, { fuel: 20, wetness: track.wetness ?? 0 });
   const sol = optimizeGlobal(track, envelope, fast
+    // Skill back to explicit 1.0 (2026-09-17): uniform 0.97 headroom + 0.94
+    // winner derate destabilized selection (108s/off) without helping pace.
+    // Dense-profile honesty stays; margin headroom is re-examined after MPC lands.
     ? { widths: [120, 50], amplitudes: [2.0, 0.8], sweeps: 1, step: 5, skill: 1.0 }
     : { widths: [140, 70, 32], amplitudes: [2.2, 1.0, 0.4], sweeps: 1, step: 3, skill: 1.0 });
-  return { line: new GlobalLine(track, sol), envelope, solution: sol, spec };
+  const line = new GlobalLine(track, sol);
+  // T_TRANSIENT: re-profile the built dense geometry with measured capability
+  // (skill 0.97 headroom + brakeReal 0.9). Planner optimism = transient - geo.
+  let transientLap = sol.lapTime;
+  try {
+    const pts = sol.stations.map((st, i) => {
+      const p = track.at(st.s, sol.offsets[i]);
+      return { x: p.x, z: p.z, s: st.s, offset: sol.offsets[i] };
+    });
+    transientLap = lapTimeProfile(pts, envelope, { skill: 0.97, brakeScale: 0.9 }).seconds;
+  } catch { transientLap = sol.lapTime; }
+  return { line, envelope, solution: sol, spec, transientLap };
 }
 
 export class MuseSession {
@@ -35,9 +49,11 @@ export class MuseSession {
     const built = buildLine(track, this.classId, this.fastLine);
     this.line = built.line; this.envelope = built.envelope; this.solution = built.solution; this.spec = built.spec;
     this.theoreticalLap = built.line.theoreticalLap;
+    this.transientLap = built.transientLap ?? built.line.theoreticalLap;
     this.cars = GRID.map(([name, color], id) => new Vehicle(id, name, color, this.mixed ? CLASS_IDS[(id + CLASS_IDS.indexOf(this.classId)) % CLASS_IDS.length] : this.classId));
     this.drivers = this.cars.map((c, i) => new MuseDriver(i, track, this.line, createEnvelope(c.spec, { fuel: 20 }), {
-      skill: opts.skills ? opts.skills[i % opts.skills.length] : ((opts.driverMode ?? 'SPRINT') === 'QUALIFYING' ? 0.995 : 0.955 + (i % 4) * 0.008), aggression: this.aggression, mode: opts.driverMode ?? 'SPRINT', spec: c.spec
+      skill: opts.skills ? opts.skills[i % opts.skills.length] : ((opts.driverMode ?? 'SPRINT') === 'QUALIFYING' ? 0.995 : 0.955 + (i % 4) * 0.008), aggression: this.aggression, mode: opts.driverMode ?? 'SPRINT', spec: c.spec,
+      controller: opts.controller ?? 'sampling', transientLap: built.transientLap ?? built.line.theoreticalLap
     }));
     this.player = this.cars[0];
     this.phase = 'menu'; this.time = 0; this.countdown = 0; this.contacts = 0; this.autopilot = true;

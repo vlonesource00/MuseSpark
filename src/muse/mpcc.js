@@ -40,10 +40,10 @@ export function brakeNeeded(event, s, v, targetSpeed, trackLength = 2705) {
 // Throttle-first pedals: coast before braking; brake only with causal source.
 // Combined-slip gated: full throttle only when remaining longitudinal
 // capability covers the engine request (physical Newtons, not reserve fraction).
-export function musePedals(speedErr, envelope, v, ayDemand, brakeGate) {
+export function musePedals(speedErr, envelope, v, ayDemand, brakeGate, axMeas = 0, muScale = 1) {
   // brakeGate: {allowed: bool, source, pressure}
   if (speedErr > 0.4) {
-    const gate = envelope.throttleLegal(v, ayDemand);
+    const gate = envelope.throttleLegal(v, ayDemand, 0, axMeas, muScale);
     if (gate.legal) return { throttle: 1, brake: 0, source: 'NONE', coasting: false };
     // Combined limit: partial throttle proportional to remaining capability.
     const frac = Math.min(1, Math.max(0.12, gate.remaining / Math.max(1, gate.request)));
@@ -76,7 +76,7 @@ export class CoupledController {
     this.h = 0.055;
     this.ms = 0;
   }
-  update(car, plan, current, pursuit, targetSpeed, envelope, safety, traffic, trackLength = 2705) {
+  update(car, plan, current, pursuit, targetSpeed, envelope, safety, traffic, trackLength = 2705, muScale = 1) {
     const t0 = performance.now ? performance.now() : Date.now();
     const SPEC = this.spec;
     // Spatial braking is a PURE FUNCTION of (s, v, plan) — no latched state.
@@ -159,7 +159,10 @@ export class CoupledController {
     else if (traffic && traffic.hardConflict && err < -1) gate = { allowed: true, source: 'TRAFFIC_CONFLICT', pressure: clamp(-err * 0.25, 0.3, 1) };
     else if (overspeed > 0.5 && this.brakeEvent) gate = { allowed: true, source: this.brakeEvent.source, pressure: clamp(0.4 + overspeed / 12, 0.4, 1) };
     else if (Math.abs(current.lateral) > 7.5) gate = { allowed: true, source: 'TRACK_LIMIT_AVOIDANCE', pressure: 0.5 };
-    const pedals = musePedals(err, envelope, car.speed, ayDemand, gate);
+    // (Brake follow-through hysteresis tried 2026-09-17: braking below target
+    // extends trail-braking into the turn and spins the rear. Reverted; the
+    // continuous-force MPC removes bands structurally instead.)
+    const pedals = musePedals(err, envelope, car.speed, ayDemand, gate, car.ax, muScale ?? 1);
     this.lastSource = pedals.source;
     this.ms = (performance.now ? performance.now() : Date.now()) - t0;
     return { steer: this.steer, throttle: pedals.throttle, brake: pedals.brake, source: pedals.source, coasting: pedals.coasting, mpcCorr: bestCorr, longBias: bestBias };
