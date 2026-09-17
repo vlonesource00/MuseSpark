@@ -170,10 +170,21 @@ tracked below. Sampling preserved as baseline/fallback/regression reference
 
 ### Parked with evidence (not abandoned)
 - Required-decel pedal feedforward (wrong apex horizon made it weak; urgency kept).
-- Brake follow-through hysteresis (extends trail into turn -> spins).
+- Brake follow-through hysteresis (extends trail-braking into the turn and spins).
 - Uniform profile headroom (destabilized selection, 108s/off).
 - N=16 horizon (Euler yaw modes marginal at h=0.12; N=10 + target-capped vBase).
 - Straight anti-severe cut (wrong mechanism; lateral convergence is the killer).
+
+### Wave close-out (2026-09-17, verified)
+- Sampling QUALIFYING 83.883 (off 3.26), SPRINT 83.83 (off 0.0). Theory 71.92,
+  transient 72.72. 29/29 tests, phantom 0, bridge parity pace-exact.
+- MPC: all known solver bugs fixed (scaling, sign, lambda persistence, vBase,
+  launch guard, steer envelope, brake-gate starvation); corner sandbox shows
+  genuine trail-braking; full-lap entries still open. Default stays sampling.
+- M3: equal-duel contact gate passes at stable pace; slow-rival conversion +
+  6-car contact cost await the corridor protocol (ovRole scaffold committed).
+- Pack results are chaos-amplified (2x swings from small changes, deterministic
+  system): future pack A/B requires multi-scenario averaging, never single runs.
 
 ## Checkpoint 6 — Line acquisition: 86.88 → 84.73 (2026-09-16)
 
