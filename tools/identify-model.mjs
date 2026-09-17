@@ -2,7 +2,7 @@
 // Experiments: steering actuator, steady-state bicycle fit (Cf/Cr), transient
 // step response, straight accel/brake, combined circle, steer-rate capability.
 // Prints fitted params + open-loop RMSE at 0.25/0.5/1/1.5/2.0s + capability
-// factors consumed by T_TRANSIENT accounting and the predictive controller.
+// factors consumed by T_PROFILE accounting and the predictive controller.
 import { Track } from '../src/sim/track.js';
 import { Vehicle } from '../src/sim/vehicle.js';
 import { carSpecFor } from '../src/sim/car-specs.js';

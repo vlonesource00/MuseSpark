@@ -20,17 +20,19 @@ export function buildLine(track, classId = 'gt', fast = false) {
     ? { widths: [120, 50], amplitudes: [2.0, 0.8], sweeps: 1, step: 5, skill: 1.0 }
     : { widths: [140, 70, 32], amplitudes: [2.2, 1.0, 0.4], sweeps: 1, step: 3, skill: 1.0 });
   const line = new GlobalLine(track, sol);
-  // T_TRANSIENT: re-profile the built dense geometry with measured capability
-  // (skill 0.97 headroom + brakeReal 0.9). Planner optimism = transient - geo.
-  let transientLap = sol.lapTime;
+  // T_PROFILE: re-profile the built dense geometry with measured capability
+  // (skill 0.97 headroom + brakeReal 0.9). This is a DERATED QUASI-STEADY
+  // profile, not a transient optimum — T_DYNAMIC comes from the offline
+  // M_CONTROL solve (tools/dynamic-feasibility.mjs), passed via opts.
+  let profileLap = sol.lapTime;
   try {
     const pts = sol.stations.map((st, i) => {
       const p = track.at(st.s, sol.offsets[i]);
       return { x: p.x, z: p.z, s: st.s, offset: sol.offsets[i] };
     });
-    transientLap = lapTimeProfile(pts, envelope, { skill: 0.97, brakeScale: 0.9 }).seconds;
-  } catch { transientLap = sol.lapTime; }
-  return { line, envelope, solution: sol, spec, transientLap };
+    profileLap = lapTimeProfile(pts, envelope, { skill: 0.97, brakeScale: 0.9 }).seconds;
+  } catch { profileLap = sol.lapTime; }
+  return { line, envelope, solution: sol, spec, profileLap };
 }
 
 export class MuseSession {
@@ -49,11 +51,12 @@ export class MuseSession {
     const built = buildLine(track, this.classId, this.fastLine);
     this.line = built.line; this.envelope = built.envelope; this.solution = built.solution; this.spec = built.spec;
     this.theoreticalLap = built.line.theoreticalLap;
-    this.transientLap = built.transientLap ?? built.line.theoreticalLap;
+    this.profileLap = built.profileLap ?? built.line.theoreticalLap;
+    this.dynamicLap = opts.dynamicLap ?? null;
     this.cars = GRID.map(([name, color], id) => new Vehicle(id, name, color, this.mixed ? CLASS_IDS[(id + CLASS_IDS.indexOf(this.classId)) % CLASS_IDS.length] : this.classId));
     this.drivers = this.cars.map((c, i) => new MuseDriver(i, track, this.line, createEnvelope(c.spec, { fuel: 20 }), {
       skill: opts.skills ? opts.skills[i % opts.skills.length] : ((opts.driverMode ?? 'SPRINT') === 'QUALIFYING' ? 0.995 : 0.955 + (i % 4) * 0.008), aggression: this.aggression, mode: opts.driverMode ?? 'SPRINT', spec: c.spec,
-      controller: opts.controller ?? 'sampling', transientLap: built.transientLap ?? built.line.theoreticalLap
+      controller: opts.controller ?? 'sampling', profileLap: built.profileLap ?? built.line.theoreticalLap, dynamicLap: opts.dynamicLap ?? null
     }));
     this.player = this.cars[0];
     this.phase = 'menu'; this.time = 0; this.countdown = 0; this.contacts = 0; this.autopilot = true;

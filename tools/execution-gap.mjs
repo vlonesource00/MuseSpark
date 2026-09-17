@@ -131,6 +131,15 @@ const distSinceBrakeEnd = (i) => {
   }
   return d;
 };
+// distance to NEXT braking onset ahead (ENTRY attribution: arriving hot)
+const distToBrakeOnset = (i) => {
+  let d = Infinity;
+  for (const e of events) {
+    const ahead = (bins[e.from].s - bins[i].s + L) % L;
+    if (ahead > 1 && ahead < d) d = ahead;
+  }
+  return d;
+};
 // ---------------------------------------------------------- classification
 const loss = {};
 const add = (cls, dt) => { loss[cls] = (loss[cls] ?? 0) + dt; };
@@ -147,6 +156,7 @@ bins.forEach((b, i) => {
     else if (b.mxBrk > 0.2 && b.v < b.ref - 1.0) cls = 'BRAKING';
     else if (sinceBrk < 30 && b.thr < 0.6 && b.v < b.ref - 0.5) cls = 'BRAKE_RELEASE';
     else if (sinceBrk < 200 && b.thr < 0.95 && b.v < b.ref - 0.5) cls = sinceBrk < 45 ? 'THROTTLE_PICKUP' : 'EXIT';
+    else if (distToBrakeOnset(i) < 60 && b.v > b.ref + 1.5) cls = 'ENTRY';
     else if (Math.abs(b.kG) > 0.004 && b.v < b.ref - 1.0) cls = 'MID_CORNER';
     // THERMAL only when tracking (v≈tgt) a heat-depressed target — heat alone
     // explains nothing while the car is braking/cornering below target.

@@ -44,7 +44,8 @@ export class MuseDriver {
     this.wasRecovering = false;
     this.brakeSource = 'NONE';
     this.theoreticalLap = line.theoreticalLap;
-    this.transientLap = opts.transientLap ?? line.theoreticalLap;
+    this.profileLap = opts.profileLap ?? line.theoreticalLap;
+    this.dynamicLap = opts.dynamicLap ?? null;
     this.realizedLap = null;
     this.spec = opts.spec;
   }
@@ -308,12 +309,17 @@ export class MuseDriver {
       else if (v < ref - 1.0) loss = 'MID_CORNER';
       else if (v < ref - 0.4) loss = 'CONTROL';
       this.debug.lossSource = loss;
+      // T-levels: geometric (quasi-steady) / profile (derated) / dynamic
+      // (M_CONTROL solve, when measured) / actual. Execution gap is vs
+      // dynamic when known, vs profile (provisional) otherwise.
+      const dyn = this.dynamicLap;
       this.debug.tLevels = {
         geometric: +this.theoreticalLap.toFixed(3),
-        transient: +this.transientLap.toFixed(3),
+        profile: +this.profileLap.toFixed(3),
+        dynamic: dyn ? +dyn.toFixed(3) : null,
         actual: this.realizedLap ? +this.realizedLap.toFixed(3) : null,
-        optimism: +(this.transientLap - this.theoreticalLap).toFixed(3),
-        controlGap: this.realizedLap ? +(this.realizedLap - this.transientLap).toFixed(3) : null
+        profileOptimism: +(this.profileLap - this.theoreticalLap).toFixed(3),
+        executionGap: this.realizedLap ? +(this.realizedLap - (dyn ?? this.profileLap)).toFixed(3) : null
       };
     }
   }

@@ -1,6 +1,7 @@
-// T-level accounting: T_GEOMETRIC (pure quasi-steady optimum) vs T_TRANSIENT
-// (measured-capability plan: skill 0.97 headroom + brakeReal 0.9). The gap
-// between them is planner optimism, NOT controller gap.
+// T-level accounting: T_GEOMETRIC (pure quasi-steady optimum) vs T_PROFILE
+// (dense capability profile with measured derates). T_DYNAMIC (transient
+// minimum-time through M_CONTROL) comes from tools/dynamic-feasibility.mjs —
+// a derated quasi-steady number must NEVER be called transient-optimal.
 import { Track } from '../src/sim/track.js';
 import { carSpecFor } from '../src/sim/car-specs.js';
 import { createEnvelope } from '../src/muse/envelope.js';
@@ -15,5 +16,5 @@ const geo = optimizeGlobal(track, envelope, { ...OPTS, skill: 1.0, brakeScale: 1
 console.log(`T_GEOMETRIC =${geo.lapTime.toFixed(3)}s (accepted=${geo.accepted} ms=${(performance.now() - t0).toFixed(0)})`);
 t0 = performance.now();
 const tra = optimizeGlobal(track, envelope, OPTS);
-console.log(`T_TRANSIENT =${tra.lapTime.toFixed(3)}s (accepted=${tra.accepted} ms=${(performance.now() - t0).toFixed(0)})`);
-console.log(`planner optimism = ${(tra.lapTime - geo.lapTime).toFixed(3)}s`);
+console.log(`T_PROFILE   =${tra.lapTime.toFixed(3)}s (accepted=${tra.accepted} ms=${(performance.now() - t0).toFixed(0)})`);
+console.log(`profile-vs-geometric = ${(tra.lapTime - geo.lapTime).toFixed(3)}s (derate cost, not controller gap)`);

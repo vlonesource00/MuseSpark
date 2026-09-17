@@ -132,7 +132,7 @@ export function optimizeGlobal(track, envelope, opts = {}) {
   // Profile skill 0.97 (0.94 force headroom): the plan must survive stencil
   // error + transients + hot rubber. u≤1.0 profiles are un drivable edge cases
   // (measured: aliasing spikes to u=1.89, spins at ul 0.83). Headroom is
-  // transient feasibility, not fear — T_TRANSIENT accounting lives here.
+  // transient feasibility, not fear — derated-profile (T_PROFILE) accounting.
   const popts = { ...opts, skill: opts.skill ?? 0.97 };
   const widths = opts.widths ?? [140, 70, 32];
   const amplitudes = opts.amplitudes ?? [2.2, 1.0, 0.4];

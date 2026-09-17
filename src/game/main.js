@@ -166,8 +166,8 @@ function frame(now) {
 STRATEGY ${m.type ?? '-'} / ${m.flank ?? '-'} commit ${(m.commit ?? 0).toFixed(1)}s
 ${drv.debug.explanation ?? ''}
 TURN IN/OUT q=${foc.lateral.toFixed(2)}m tgt=${drv.plan?.winner ? drv.plan.winner.apexQ.toFixed(2) : '-'}
-GLOBAL ${session.theoreticalLap.toFixed(2)}s | TRANSIENT ${session.transientLap.toFixed(2)}s | REALIZED ${foc.race.bestLap?.toFixed(2) ?? '-'}s | GAP ${foc.race.bestLap ? (foc.race.bestLap - session.theoreticalLap).toFixed(2) + 's' : '-'}
-LOSS ${drv.debug.lossSource ?? '-'} (optimism +${((drv.debug.tLevels?.optimism) ?? 0).toFixed(2)}s / ctrl gap ${drv.debug.tLevels?.controlGap ?? '-'}s)
+GLOBAL ${session.theoreticalLap.toFixed(2)}s | PROFILE ${session.profileLap.toFixed(2)}s | DYNAMIC ${session.dynamicLap?.toFixed(2) ?? '-'}s | REALIZED ${foc.race.bestLap?.toFixed(2) ?? '-'}s | GAP ${foc.race.bestLap ? (foc.race.bestLap - session.theoreticalLap).toFixed(2) + 's' : '-'}
+LOSS ${drv.debug.lossSource ?? '-'} (profOpt +${((drv.debug.tLevels?.profileOptimism) ?? 0).toFixed(2)}s / exec gap ${drv.debug.tLevels?.executionGap ?? '-'}s)
 BRAKING src=${drv.brakeSource} start=${drv.controller.brakeEvent?.startS.toFixed(0) ?? '-'} rel=${drv.controller.brakeEvent?.releaseS.toFixed(0) ?? '-'} apex=${drv.controller.brakeEvent?.apexS.toFixed(0) ?? '-'}
 PHYSICS lat=${(foc.ay / 9.81).toFixed(2)}g long=${(foc.ax / 9.81).toFixed(2)}g slip=${(Math.atan2(foc.v, Math.max(4, foc.u)) * 57.3).toFixed(1)}deg yaw=${(foc.yawRate).toFixed(2)}
 PACE tgt=${drv.targetSpeed.toFixed(1)}m/s debt=${drv.strategy.blockedDebt.toFixed(2)}s
