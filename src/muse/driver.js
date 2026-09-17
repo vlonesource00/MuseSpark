@@ -237,19 +237,14 @@ export class MuseDriver {
     // garbage can yank full lock (s=12 spin). The proven sampling controller
     // owns the launch; MPC engages at speed. Cost: ~1.5s of 85s lap unaffected.
     if (this.controllerMode === 'mpc' && this.plan?.winner && car.speed >= 12) {
-      const w = this.plan.winner;
-      const sm = this.skill * margin;
-      const vRefAt = (s) => {
-        let bd = Infinity, bv = null;
-        for (let k = 0; k < w.points.length; k++) {
-          const d = Math.abs(((w.points[k].s - s) % this.track.length + this.track.length) % this.track.length);
-          const dd = Math.min(d, this.track.length - d);
-          if (dd < bd) { bd = dd; bv = w.speed[k]; }
-        }
-        return (bd < 14 && bv !== null ? bv : this.line.speedAt(s)) * sm;
+      // Governor context: the MPC queries the SAME spatial future as sampling.
+      const govCtx = {
+        gov: this.gov, winner: this.plan.winner, skill: this.skill, margin,
+        wet: this.track.wetness ?? 0, dec: 9.0, hardConflict: !!traffic.hardConflict,
+        rivalNear
       };
       const muScale = thermalMargin(obs.ego.tyreMax ?? 70, obs.ego.tyreWear ?? 0);
-      const mpc = this.mpc.update(car, plan, vRefAt, { s: obs.ego.s, lateral: obs.ego.q }, targetSpeed, this.envelope, safety, traffic, this.track.length, muScale, car.gear || 0, car.rpm || 0, this.skill * margin);
+      const mpc = this.mpc.update(car, plan, { s: obs.ego.s, lateral: obs.ego.q }, targetSpeed, this.envelope, safety, traffic, this.track.length, muScale, car.gear || 0, car.rpm || 0, govCtx);
       cmd = { steer: mpc.steer, throttle: mpc.throttle, brake: mpc.brake };
       this.brakeSource = mpc.source;
       mpcInfo = mpc.mpc;

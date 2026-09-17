@@ -23,9 +23,12 @@ export class TrajectorySearch {
     this.stats = { screened: 0, finalists: 0, ms: 0 };
   }
   // Build candidate lateral profile: blend global line with maneuver offsets.
-  // Ego-anchored: starts at current q, blends to maneuver target over ~45m
-  // (smoothstep) so replans never command an instant lateral jump.
-  buildGeometry(s0, spec, egoQ = 0) {
+  // Ego-anchored ONLY in traffic (replan stability for maneuvers): starts at
+  // current q, blends to maneuver target over ~45m. In clear air the plan IS
+  // the line (no anchor) — anchored geometry deletes the tracking-error
+  // signal and strands every consumer (pursuit, MPC eLat/wall) in a
+  // self-consistent off-line equilibrium.
+  buildGeometry(s0, spec, egoQ = 0, anchor = true) {
     const out = [];
     const flank = spec.flank;
     const L = this.track.length;
@@ -41,7 +44,10 @@ export class TrajectorySearch {
       else if (flank === 'INSIDE') q += (1 - u * 0.6) * spec.amp;
       else if (flank === 'SWITCHBACK') q += Math.sin(u * Math.PI) * spec.amp * 0.7 - (1 - u) * 1.2;
       q = clamp(q, -(this.track.halfWidth - 1.3), this.track.halfWidth - 1.3);
-      // Anchor start to ego lateral to avoid yank.
+      // Anchor start to ego lateral to avoid yank. Clear-air unanchored plans
+      // tried 2026-09-17: sampling lost its progressive rejoin pull and went
+      // off (17.9s). Anchor stays for plan stability; the MPC reads true
+      // line error via governor.pose instead (no equilibrium there).
       const blend = smooth((i * this.step) / 45);
       q = egoQ * (1 - blend) + q * blend;
       const p = this.track.at(wrap(s, L), q);
@@ -144,7 +150,7 @@ export class TrajectorySearch {
     const scored = [];
     for (let k = 0; k < specs.length; k++) {
       const c = pool[k % POOL];
-      const pts = this.buildGeometry(s0, specs[k], egoQ);
+      const pts = this.buildGeometry(s0, specs[k], egoQ, trafficNear);
       const { time, speed, curv } = this.timeOf(pts, v0);
       // Width legality (car half width 0.99 + margin).
       let legal = true;

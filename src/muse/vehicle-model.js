@@ -124,15 +124,19 @@ export function createVehicleModel(spec, envelope, overrides = {}) {
     const dr = (lf * Fyf - lr * Fyr) / Iz;
     const vx = s.vx + (ax + s.r * s.vy) * h;
     const vy = s.vy + (ay - s.r * s.vx) * h;
-    const r = s.r + dr * h;
+    // Plant clamps yaw rate to ±3: mirror it so prediction rollouts cannot
+    // spin to absurd states whose cliff costs trap the optimizer.
+    const r = clamp(s.r + dr * h, -3.2, 3.2);
     const yaw = s.yaw + r * h;
     const c = Math.cos(s.yaw), sn = Math.sin(s.yaw);
     return {
       x: s.x + (s.vx * sn + s.vy * c) * h,
       z: s.z + (s.vx * c - s.vy * sn) * h,
       yaw, vx, vy, r, delta, F: FlongLag, axPrev: ax, ax, ay,
-      utilF: Math.abs(Fyf) / Math.max(1, fMaxF),
-      utilR: Math.hypot(Fyr, Flong) / Math.max(1, fMaxR)
+      // Reported utils saturate at 3.0: beyond is "deep violation", and raw
+      // ratios (~150 in diverged predictions) create cliff costs that trap GN.
+      utilF: Math.min(3, Math.abs(Fyf) / Math.max(1, fMaxF)),
+      utilR: Math.min(3, Math.hypot(Fyr, Flong) / Math.max(1, fMaxR))
     };
   }
 

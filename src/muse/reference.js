@@ -50,8 +50,13 @@ export function createGovernor({ track, line, envelope }) {
   }
 
   function vAllow(s, prm) {
-    // min over apexes of sqrt(apexV^2 + 2*dec*d): the speed from which the
-    // profile's own braking still makes every downstream apex. dec=9 default.
+    // min over ALL future stations j of sqrt(v_j^2 + 2*dec*d_j): the speed
+    // from which the profile's own braking still makes every downstream
+    // station — not just the single slowest apex. Apex-only formulation
+    // underconstrains entry kinks (hairpin entry: allow said 50 where the
+    // line knew 29, car arrived +20 hot and slid). dec=9 default.
+    // Returns Infinity when nothing constrains (pure apex authority — the
+    // line cap lives in vLine/target; callers needing finiteness substitute).
     const w = prm.winner;
     if (!w?.speed) return Infinity;
     const dec = prm.dec ?? 9.0;
@@ -60,8 +65,8 @@ export function createGovernor({ track, line, envelope }) {
     for (let i = 0; i < w.points.length; i++) {
       const ds = dsOf(w.points[i].s, s);
       if (ds < -5 || ds > 170) continue;
-      const apexV = w.speed[i] * sm;
-      const allow = Math.sqrt(apexV * apexV + 2 * dec * Math.max(0, ds));
+      const vj = w.speed[i] * sm;
+      const allow = Math.sqrt(vj * vj + 2 * dec * Math.max(0, ds));
       if (allow < lim) lim = allow;
     }
     return lim;
@@ -114,5 +119,31 @@ export function createGovernor({ track, line, envelope }) {
     return Number.isFinite(a0) && Number.isFinite(a1) && a1 > a0 + 1.0;
   }
 
-  return { qRef, kappaRef, vLine, vAllow, target, requiredDecel, brakeCause, pickupOpen };
+  function kappaLine(s) {
+    // Smooth global-line curvature (seam-free): the yaw-damping reference.
+    // Winner/line switching makes plan-sampled curvature spike pi-flips at
+    // coverage seams (measured: yaw cost 3612 from garbage rRef); damping
+    // needs sanity, not maneuver exactness.
+    return line.curvatureAt ? line.curvatureAt(s) : track.at(s).curvature;
+  }
+
+  function pose(s, prm = {}) {
+    // Committed-plan pose (position + frame) for tracking references.
+    const q = qRef(s, prm);
+    const p = track.at(s, q);
+    p.offset = q;
+    return p;
+  }
+
+  function linePose(s) {
+    // Pure global-line pose (no winner blending): the honest clear-air
+    // reference for controllers that must see true off-line error.
+    const q = line.offsetAt(s);
+    const p = track.at(s, q);
+    p.offset = q;
+    p.speed = line.speedAt(s);
+    return p;
+  }
+
+  return { qRef, kappaRef, kappaLine, pose, linePose, vLine, vAllow, target, requiredDecel, brakeCause, pickupOpen };
 }

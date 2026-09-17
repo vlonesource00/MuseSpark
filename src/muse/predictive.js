@@ -13,8 +13,15 @@
 // reference (driver opts.controller 'sampling', tools --baseline).
 import { clamp, angle } from '../sim/math.js';
 
-function solveNormal(A, b) {
-  // Solve Ax=b, A symmetric positive-definite (n<=24), Gaussian elimination.
+// Smooth Huber: linear near zero, saturating far out. Bounds the influence of
+// stale/hot references (15 m/s vel gaps, meters-off lateral) so stability
+// barriers can win when they must. Plain quadratic lets one hot residual
+// command full brake + full lock simultaneously — the entry-spin mechanism.
+function hub(x, cap) {
+  return cap * Math.tanh(x / cap);
+}
+
+function solveNormal(A, b) {  // Solve Ax=b, A symmetric positive-definite (n<=24), Gaussian elimination.
   const n = b.length;
   const M = A.map((row, i) => [...row, b[i]]);
   for (let c = 0; c < n; c++) {
@@ -38,13 +45,11 @@ export class PredictiveController {
     this.spec = spec;
     this.envelope = envelope;
     this.model = model;
-    // Horizon: N=10x0.09=0.9s. N=16x0.12 was tried (sees full zones) but
-    // explicit-Euler yaw modes go marginal at h=0.12 even substepped, costs
-    // blew up 1000x, and entries still failed. Braking demand comes from the
-    // target-capped vBase profile, not horizon length — 0.9s of honest
-    // reference beats 1.9s of noise. Revisit horizon with implicit integration.
-    this.N = opts.horizon ?? 10;
-    this.h = opts.step ?? 0.09;
+    // Horizon: N=16x0.12=1.92s braking preview. The earlier N=16 attempt failed
+    // on explicit-Euler yaw instability; the model now subdivides h>0.07
+    // transparently, so retry with correct numerics. N=10 kept as fallback.
+    this.N = opts.horizon ?? 16;
+    this.h = opts.step ?? 0.12;
     this.rateHz = opts.rateHz ?? 60;
     this.deadlineMs = opts.deadlineMs ?? 5;
     this.maxIters = opts.iters ?? 3;
@@ -62,24 +67,30 @@ export class PredictiveController {
     };
   }
 
-  // Reference tuple at station s: lateral/heading/curvature/speed from plan.
-  refAt(plan, vRefAt, s) {
+  // Reference tuple at station s: committed-plan geometry (speed comes from
+  // the governor's spatial profile, never from here).
+  refAt(plan, s) {
     const p = plan.at(s);
-    return { x: p.x, z: p.z, nx: p.nx, nz: p.nz, heading: p.heading ?? Math.atan2(p.tx, p.tz), q: p.offset ?? 0, v: vRefAt(s) };
+    return { x: p.x, z: p.z, nx: p.nx, nz: p.nz, heading: p.heading ?? Math.atan2(p.tx, p.tz), q: p.offset ?? 0 };
   }
 
-  update(car, plan, vRefAt, current, targetSpeed, envelope, safety, traffic, trackLength, muScale, gear, rpm, sm = 1) {
+  update(car, plan, current, targetSpeed, envelope, safety, traffic, trackLength, muScale, gear, rpm, govCtx) {
     const t0 = performance.now();
     this.tick++;
+    this._gov = govCtx?.gov ?? this._gov ?? null;
     const SPEC = this.spec, N = this.N, h = this.h;
-    // 60Hz re-optimization; off-ticks hold the shifted previous solution.
-    if (this.tick % 2 === 0 && this.lastU0) {
-      const cmd = this.applyU0(car, this.lastU0, targetSpeed, envelope, safety, traffic, current, gear, rpm, muScale);
+    // 60Hz re-optimization; off-ticks advance the shifted sequence (proper
+    // RTI hold: the applied command is always U[0] of the current sequence,
+    // never a stale copy — stale holds masked solver behavior in diagnosis).
+    if (this.tick % 2 === 0 && this.U && this.U.length === N) {
+      this.U = this.U.slice(1).concat([{ ...this.U[N - 1] }]);
+      this.lastU0 = { ...this.U[0] };
+      const cmd = this.applyU0(car, this.U[0], targetSpeed, envelope, safety, traffic, current, gear, rpm, muScale);
       this.stats.ms = performance.now() - t0;
       return { ...cmd, mpc: { held: true, iters: 0, ms: this.stats.ms, miss: false } };
     }
     try {
-      const res = this.solve(car, plan, vRefAt, current, targetSpeed, envelope, safety, traffic, trackLength, muScale, gear, rpm, sm, t0);
+      const res = this.solve(car, plan, current, targetSpeed, envelope, safety, traffic, trackLength, muScale, gear, rpm, govCtx, t0);
       if (!res) throw new Error('no-solution');
       return res;
     } catch (e) {
@@ -93,7 +104,7 @@ export class PredictiveController {
     }
   }
 
-  solve(car, plan, vRefAt, current, targetSpeed, envelope, safety, traffic, trackLength, muScale, gear, rpm, sm, t0) {
+  solve(car, plan, current, targetSpeed, envelope, safety, traffic, trackLength, muScale, gear, rpm, govCtx, t0) {
     const SPEC = this.spec, N = this.N, h = this.h, L = trackLength;
     const x0 = this.model.fromCar(car);
     const lim = this.model.forceLimits(Math.max(5, car.speed), car.ax, gear || 0);
@@ -104,51 +115,67 @@ export class PredictiveController {
     // already saturate the tires (0.27 rad at 56 m/s spun the car while the
     // optimizer chased lateral error). Bound = 1.5x the angle for 0.9·latMax
     // steady cornering — generous for rejoins, impossible to yank past grip.
-    // Floor 0.03 keeps low-speed maneuverability (launch handled by sampling).
+    // Floor is speed-scheduled: 0.03 only helps below ~20 m/s; at 57 a 0.03
+    // floor PINNED the optimizer into a ±limit-cycle sway that stepped the
+    // rear out under power. Launch (<12 m/s) is sampling-owned anyway.
     const v0v = Math.max(8, Math.abs(x0.vx));
     const latMax0 = envelope.lateral(v0v);
-    const dMax = Math.max(0.03, Math.min(lock, 1.5 * Math.atan(0.9 * latMax0 * SPEC.wheelbase / (v0v * v0v))));
-    // Reference speed by DISTANCE ahead (precomputed once per solve): winner
-    // profile shaped by the same braking-distance limit the driver target
-    // uses. Raw winner speeds hide braking demand (found: optimizer never
-    // braked, sailed into hairpin at 42). vRefAt(s) arg kept for API compat.
-    const smEff = sm ?? 1;
+    const dFloor = v0v < 20 ? 0.03 : 0.008;
+    const dMax = Math.max(dFloor, Math.min(lock, 1.5 * Math.atan(0.9 * latMax0 * SPEC.wheelbase / (v0v * v0v))));
+    // Reference speed by DISTANCE ahead from the SHARED governor (Phase F):
+    // V_ALLOW(s_k) is spatial/causal per predicted station. The banned
+    // pattern was min(vBase, scalarTargetSpeed) copied across the horizon
+    // (suppressed post-apex pickup). Fallback path only without a governor.
+    const gov = govCtx?.gov ?? null;
     const w = plan.winner;
     const vBase = [];
     {
       let dist = 0;
       const v0 = Math.max(5, car.speed);
+      // Reactive caps (mirror driver arbitration): in distress the spatial
+      // profile is aspirational — survive now (full throttle into a slide
+      // spins; measured s=794). Not a scalar-cap ban violation: these fire
+      // only on current distress, never on clean running.
+      const slip0 = Math.abs(Math.atan2(car.v, Math.max(4, Math.abs(car.u))));
+      let capReactive = Infinity;
+      if (slip0 > 0.2) capReactive = Math.min(capReactive, car.speed * (1 - clamp((slip0 - 0.2) * 1.1, 0, 0.45)));
+      if (Math.abs(current.lateral) > (plan.halfWidth ?? 8.2) + 0.8) capReactive = Math.min(capReactive, 11);
       for (let k = 0; k < N; k++) {
         dist += v0 * h;
-        vBase.push(vRefAt(current.s + dist));
+        const sK = current.s + dist;
+        const va = gov ? gov.vAllow(sK, govCtx) : Infinity;
+        // Spatial line cap per station (NOT a scalar cap): the dense line
+        // knows entry-kink curvature the apex formula cannot see (hairpin
+        // entry: allow said 40 where the line knew 29 — slide). vLine uses
+        // the solve-entry speed for its lookahead (stationary reference).
+        const vl = gov ? gov.vLine(sK, { ...govCtx, v: v0 }) : Infinity;
+        const fb = Number.isFinite(va) ? va : vl;
+        vBase.push(Math.min(fb, vl, capReactive));
       }
-      // braking-limited shaping: min over apexes of sqrt(apex^2+2*dec*d)
-      const dec = 9.0;
-      for (let k = 0; k < N; k++) {
-        let lim2 = Infinity;
-        if (w?.speed) {
-          for (let i = 0; i < w.points.length; i++) {
-            let dsA = (w.points[i].s - current.s) % L;
-            if (dsA > L / 2) dsA -= L;
-            if (dsA < -L / 2) dsA += L;
-            const ahead = dsA - k * v0 * h;
-            if (ahead < -5) continue;
-            const a = Math.sqrt(w.speed[i] * w.speed[i] * smEff * smEff + 2 * dec * Math.max(0, ahead));
-            if (a < lim2) lim2 = a;
+      if (!gov) {
+        const smEff = 1;
+        const dec = 9.0;
+        for (let k = 0; k < N; k++) {
+          let lim2 = Infinity;
+          if (w?.speed) {
+            for (let i = 0; i < w.points.length; i++) {
+              let dsA = (w.points[i].s - current.s) % L;
+              if (dsA > L / 2) dsA -= L;
+              if (dsA < -L / 2) dsA += L;
+              const ahead = dsA - k * v0 * h;
+              if (ahead < -5) continue;
+              const a = Math.sqrt(w.speed[i] * w.speed[i] * smEff * smEff + 2 * dec * Math.max(0, ahead));
+              if (a < lim2) lim2 = a;
+            }
           }
+          if (lim2 < Infinity) vBase[k] = Math.min(vBase[k], lim2);
         }
-        if (lim2 < Infinity) vBase[k] = Math.min(vBase[k], lim2);
       }
-      // Single speed authority: the driver's target already encodes line +
-      // allow-profile + safety + slip + thermal. MPC chasing a second,
-      // hotter reconstruction (13 m/s disagreement at hairpin entry) sails
-      // past corners at full throttle. vBase never exceeds target.
-      for (let k = 0; k < N; k++) vBase[k] = Math.min(vBase[k], targetSpeed);
     }
-    // Initial guess: warm start shifted, else feedforward.
-    // Warm start shifted; on large speed gaps blend in a P-seed so the
-    // solver needn't traverse 25kN in 3 damped iters (found: U0F frozen at
-    // Fmax while needing full brake — regime changes defeat pure warm start).
+    // Initial guess: current shifted sequence (holds already advance it —
+    // do NOT shift again here) with P-seed blend on large speed gaps so the
+    // solver needn't traverse 25kN in damped iters (regime changes defeat
+    // pure warm start).
     let U;
     if (this.U && this.U.length === N) {
       U = this.U.slice(1).concat([{ ...this.U[N - 1] }]);
@@ -169,24 +196,14 @@ export class PredictiveController {
       F: clamp(u.F, Fmin, Fmax)
     });
     U = U.map(clampU);
-    // Causal brake reference (phantom discipline): braking intent exists only
-    // when the winner profile demands a slower apex ahead — same rule as the
-    // sampling path, recomputed every solve, never latched.
+    // Causal brake reference from the shared governor (phantom discipline):
+    // intent exists only when the spatial profile demands a slower apex
+    // ahead. Recomputed every solve, never latched.
     {
-      let apexV = Infinity;
-      const w = plan.winner;
-      if (w?.speed) {
-        for (let i = 0; i < w.points.length; i++) {
-          let ds = (w.points[i].s - current.s) % L;
-          if (ds > L / 2) ds -= L;
-          if (ds < -L / 2) ds += L;
-          if (ds < -5 || ds > 170) continue;
-          if (w.speed[i] < apexV) apexV = w.speed[i];
-        }
-      }
-      this.brakeRef = apexV < car.speed - 1.2
-        ? { source: traffic?.hardConflict ? 'TRAFFIC_CONFLICT' : 'PLANNED_BRAKING' }
+      const bc = gov
+        ? gov.brakeCause(current.s, car.speed, { winner: plan.winner, hardConflict: !!traffic?.hardConflict })
         : null;
+      this.brakeRef = bc ? { source: bc.source } : null;
     }
     const W = this.W;
 
@@ -199,7 +216,12 @@ export class PredictiveController {
         const u = Useq[k];
         s = this.model.step(s, u, h, muScale);
         dist += Math.max(0, s.vx) * h;
-        const ref = this.refAt(plan, vRefAt, current.s + dist);
+        // Clear-air reference = global LINE pose (honest off-line error +
+        // working corridor wall). Anchored-plan reference reads ~zero error
+        // by construction (the equilibrium trap); traffic keeps the maneuver
+        // plan as reference. Mirrors the driver rejoin fix.
+        const gov3 = govCtx?.gov ?? null;
+        const ref = (gov3 && !govCtx?.rivalNear) ? gov3.linePose(current.s + dist) : plan.at(current.s + dist);
         const eLat = (s.x - ref.x) * ref.nx + (s.z - ref.z) * ref.nz;
         const eHead = angle(ref.heading - s.yaw);
         // SIGNED forward velocity everywhere: hypot() makes reversing look
@@ -207,16 +229,18 @@ export class PredictiveController {
         // the solver backs the car off the grid. Found on hotlap A/B.
         const v = s.vx;
         const beta = Math.atan2(s.vy, Math.max(4, Math.abs(s.vx)));
-        const rRef = this.refCurv(plan, current.s + dist) * Math.max(0, v);
+        const gov2 = govCtx?.gov ?? null;
+        const kRef = gov2 ? gov2.kappaLine(current.s + dist) : this.refCurv(plan, current.s + dist);
+        const rRef = kRef * Math.max(0, v);
         const wT = k === N - 1 ? 3 : 1;
         // Soft corridor wall: steep penalty beyond usable asphalt.
         const edge = (plan.halfWidth ?? 8.2) - 1.5;
         const over = Math.max(0, Math.abs(eLat) - edge);
         R.push(
-          Math.sqrt(W.lat * wT) * eLat,
+          Math.sqrt(W.lat * wT) * hub(eLat, 3.0),
           Math.sqrt(W.head * wT) * eHead,
-          Math.sqrt(W.vel) * (v - vBase[k]),
-          Math.sqrt(W.beta) * beta / 0.1,
+          Math.sqrt(W.vel) * hub(v - vBase[k], 6.0),
+          Math.sqrt(W.beta) * hub(beta, 0.5) / 0.1,
           Math.sqrt(W.yaw) * (s.r - rRef),
           Math.sqrt(W.dDelta) * (u.deltaCmd - prevD) / 0.05,
           Math.sqrt(W.dF) * (u.F - prevF) / 8000,
@@ -379,6 +403,13 @@ export class PredictiveController {
       const gate = envelope.throttleLegal(car.speed, car.ay, 0, car.ax, muScale ?? 1);
       const eng = Math.max(1500, this.model.engineForceGear(Math.max(5, car.speed), gear || 0, rpm || 0));
       throttle = clamp(Math.min(F, 0.9 * gate.remaining) / eng, 0, 1);
+      // Stability control: unexpected rotation (yaw vs governor-curvature
+      // expectation) means the rear is already going — cut power hard.
+      // Quasi-static availability cannot see transient breakaway.
+      const gov3 = this._gov ?? null;
+      const kExp = gov3 ? gov3.kappaLine(current.s) : 0;
+      const yawErr = Math.abs(car.yawRate - kExp * car.speed);
+      if (yawErr > 0.12) throttle *= clamp(1 - (yawErr - 0.12) * 4, 0.15, 1);
       source = 'NONE';
     } else if (brakeAllowed) {
       brake = brakePressure > 0 && brakeSource === 'CONTACT_AVOIDANCE' ? 1 : clamp(-F / Math.max(3000, lim.brakeMax), 0, 1);
