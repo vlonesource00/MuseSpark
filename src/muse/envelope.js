@@ -11,16 +11,21 @@ function loadFactor(load) {
   return clamp(1 - 0.13 * Math.log(Math.max(0.1, load / 3300)), 0.68, 1.18);
 }
 
-// Best-gear engine force at speed v (full throttle, shifts like Vehicle.automatic).
+// Best-gear ENGINE FORCE (Newtons at the contact patch) at speed v.
+// Axle torque = crank torque x ratio; force = torque / wheel radius.
+// (Pre-2026-09-17 this returned torque as force, understating drive ~3x -
+// found by closed-loop identification vs plant straight-line pulls.)
 export function engineForceAt(spec, v, damage = 0) {
   const u = Math.max(0.5, Math.abs(v));
   let best = 0;
   for (let g = 1; g <= 6; g++) {
     const ratio = spec.gears[g] * spec.finalDrive;
     const rpm = clamp((u / spec.radius) * ratio * 9.5493, 1100, 8300);
-    if (rpm > 8100) continue;
+    // Plant automatic upshifts at 7450 (not redline): best-gear above the
+    // shift point is un drivable. Matches Vehicle.automatic shift logic.
+    if (rpm > 7450) continue;
     const curve = clamp(1 - ((rpm - 5500) / 6700) ** 2, 0.45, 1);
-    const f = spec.maxTorque * curve * ratio * 0.91 * (1 - damage * 0.28);
+    const f = spec.maxTorque * curve * ratio * 0.91 * (1 - damage * 0.28) / spec.radius;
     if (f > best) best = f;
   }
   return best;
@@ -56,10 +61,18 @@ export function createEnvelope(spec, opts = {}) {
   function drive(v, damage = 0) {
     const m = mass();
     const F = engineForceAt(spec, v, damage);
-    const { drag } = aeroForces(spec, v, 0, 0, damage);
-    // Rolling resistance ~0.013 * N (matches Vehicle).
-    const N = totalNormal(v);
-    return Math.max(0, (F - drag) / m - 0.013 * 9.81);
+    const { drag, downforce } = aeroForces(spec, v, 0, 0, damage);
+    // Realizable = min(engine force, rear-traction cap with load transfer).
+    // In low gears the plant is tire/TC-limited (~8-9 m/s^2), not engine-limited.
+    // Transfer is implicit in ax: 3 fixed-point iterations from engine-only.
+    const mu = 1.48 * loadFactor(totalNormal(v) / 4) * gripScale * surfaceGrip;
+    let ax = Math.max(0, (F - drag) / m - 0.013 * 9.81);
+    for (let k = 0; k < 3; k++) {
+      const rearN = m * 9.81 * (1 - spec.frontWeight) + downforce * 0.57 + m * ax * spec.cg / spec.wheelbase;
+      const traction = 0.9 * mu * Math.max(0, rearN) / m;
+      ax = Math.min(Math.max(0, (F - drag) / m - 0.013 * 9.81), traction);
+    }
+    return ax;
   }
   function brake(v, damage = 0) {
     const m = mass();
@@ -81,14 +94,15 @@ export function createEnvelope(spec, opts = {}) {
     const cap = kind === 'brake' ? brake(v) : drive(v);
     return { lateral: lat, longitudinal: cap * scale, utilization: ul, scale };
   }
-  // Throttle physics gate: full engine torque requests F_eng; if remaining
-  // longitudinal tyre capability exceeds it, FULL THROTTLE IS LEGAL even when
-  // normalized reserve looks small. Never scale throttle by reserve fraction.
-  function throttleLegal(v, ayDemand, damage = 0) {
+  // Throttle physics gate (M2e semantics on corrected units): full throttle
+  // unless rear-axle reserve fraction says otherwise. request/deliver use
+  // true Newtons throughout (engineForceAt unit fix). muScale folds thermal
+  // state; axMeas is accepted for API stability (transfer lives in drive()).
+  function throttleLegal(v, ayDemand, damage = 0, axMeas = 0, muScale = 1) {
     const m = mass();
     const N = totalNormal(v);
     const avgLoad = N / 4;
-    const mu = 1.48 * loadFactor(avgLoad) * gripScale * surfaceGrip;
+    const mu = 1.48 * loadFactor(avgLoad) * gripScale * surfaceGrip * muScale;
     const peakLong = (mu * N) / 2; // rear-axle limited for RWD GT (conservative half)
     const lat = lateral(v);
     const ul = clamp(Math.abs(ayDemand) / Math.max(1, lat), 0, 0.999);

@@ -57,8 +57,12 @@ export function lapTimeProfile(points, envelope, opts = {}) {
   const accelAt = (i, v, kind) => {
     const lat = envelope.lateral(v);
     const u = Math.min(0.999, (v * v * Math.abs(curvature[i])) / Math.max(1, lat));
+    // brakeReal: measured transient factor (ident) — peak envelope decel is
+    // not realizable (ABS cycling + load-transfer lag). Planning with peak
+    // brakes builds zones the plant overshoots.
+    const scale = kind === 'brake' ? (opts.brakeScale ?? 0.9) : 1;
     const cap = kind === 'brake' ? envelope.brake(v) : envelope.drive(v);
-    return Math.max(0, cap * Math.sqrt(1 - u * u));
+    return Math.max(0, cap * scale * Math.sqrt(1 - u * u));
   };
   for (let pass = 0; pass < passes; pass++) {
     for (let i = n - 1; i >= 0; i--) {
@@ -80,8 +84,56 @@ export function lapTimeProfile(points, envelope, opts = {}) {
   return { seconds, speed, distance, curvature, maxSteeringRate: maxSteer };
 }
 
+// Dense final profile: re-evaluate the winning offsets on a ~1m grid with a
+// tight (±2m) curvature stencil — EXACTLY what GlobalLine.at interpolates at
+// runtime. The coarse search stencil (±9-15m) aliases sharp apexes up to 2x
+// (measured), founding profile speeds on a smoothed ghost. The dense pass
+// also applies measured capability (brakeReal) so zones are drivable.
+// Geometry search stays coarse (speed); the final word is dense.
+export function denseProfile(track, stations, offsets, envelope, opts = {}) {
+  const L = track.length;
+  const fineS = [];
+  for (let s = 0; s < L; s += 1.0) fineS.push(s);
+  const n = fineS.length;
+  // lerp offsets between coarse stations (mirrors GlobalLine.offsetAt)
+  const qo = new Float64Array(n);
+  const m = stations.length;
+  for (let k = 0; k < n; k++) {
+    const s = fineS[k];
+    let bi = m - 1;
+    for (let i = 0; i < m; i++) {
+      const a = stations[i].s, b = stations[(i + 1) % m].s;
+      const span = ((b - a + L) % L) || 1;
+      const t = ((s - a + L) % L) / span;
+      if (t >= 0 && t < 1) { bi = i; break; }
+    }
+    const a = stations[bi].s, b = stations[(bi + 1) % m].s;
+    const span = ((b - a + L) % L) || 1;
+    const t = clamp(((s - a + L) % L) / span, 0, 1);
+    qo[k] = offsets[bi] + (offsets[(bi + 1) % m] - offsets[bi]) * t;
+  }
+  const pts = fineS.map((s, k) => offsetPoint(track, s, qo[k]));
+  const prof = lapTimeProfile(pts, envelope, { ...opts, brakeScale: opts.brakeScale ?? 0.9 });
+  return {
+    stations: fineS.map((s) => ({ s })), offsets: qo,
+    speeds: prof.speed, distances: prof.distance, curvatures: denseCurvature(pts),
+    lapTime: prof.seconds, maxSteeringRate: prof.maxSteeringRate
+  };
+}
+
+function denseCurvature(pts) {
+  const n = pts.length, out = new Float64Array(n);
+  for (let i = 0; i < n; i++) out[i] = pathCurvature(pts[Math.max(0, i - 2)], pts[i], pts[Math.min(n - 1, i + 1)]);
+  return out;
+}
+
 export function optimizeGlobal(track, envelope, opts = {}) {
   const limit = opts.limit ?? Math.max(1.5, track.halfWidth - 1.5);
+  // Profile skill 0.97 (0.94 force headroom): the plan must survive stencil
+  // error + transients + hot rubber. u≤1.0 profiles are un drivable edge cases
+  // (measured: aliasing spikes to u=1.89, spins at ul 0.83). Headroom is
+  // transient feasibility, not fear — T_TRANSIENT accounting lives here.
+  const popts = { ...opts, skill: opts.skill ?? 0.97 };
   const widths = opts.widths ?? [140, 70, 32];
   const amplitudes = opts.amplitudes ?? [2.2, 1.0, 0.4];
   const sweeps = opts.sweeps ?? 1;
@@ -90,7 +142,7 @@ export function optimizeGlobal(track, envelope, opts = {}) {
   const m = stations.length;
   const offsets = new Float64Array(m); // coarse control = station offsets directly
   const pointAt = (i, q) => offsetPoint(track, stations[i].s, clamp(q, -limit, limit));
-  const evaluate = (arr) => lapTimeProfile(arr.map((q, i) => pointAt(i, q)), envelope, opts);
+  const evaluate = (arr) => lapTimeProfile(arr.map((q, i) => pointAt(i, q)), envelope, popts);
   let points = Array.from(offsets, (_, i) => pointAt(i, 0));
   let profile = evaluate(Array.from(offsets));
   const initialSeconds = profile.seconds;
@@ -130,7 +182,9 @@ export function optimizeGlobal(track, envelope, opts = {}) {
       }
     }
   }
-  return { stations, offsets, speeds: profile.speed, distances: profile.distance, curvatures: profile.curvature, lapTime: profile.seconds, initialSeconds, accepted, maxSteeringRate: profile.maxSteeringRate };
+  // Final word is dense: re-evaluate winners on the runtime-exact grid.
+  const dense = denseProfile(track, stations, offsets, envelope, popts);
+  return { stations: dense.stations, offsets: dense.offsets, speeds: dense.speeds, distances: dense.distances, curvatures: dense.curvatures, lapTime: dense.lapTime, initialSeconds, accepted, maxSteeringRate: dense.maxSteeringRate, coarseLapTime: profile.seconds };
 }
 
 // Runtime line: interpolates global optimum at any station + lateral extra.

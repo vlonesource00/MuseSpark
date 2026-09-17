@@ -63,6 +63,9 @@ export class TrajectorySearch {
       let lo = 4, hi = 85;
       for (let k = 0; k < 10; k++) {
         const v = (lo + hi) / 2;
+        // (0.94 uniform derate tried 2026-09-17: perturbed winner selection
+        // into off-lines, 108s/off. Reverted; spike honesty comes from the
+        // dense global profile + measured brake derate instead.)
         if (v * v * Math.abs(curv[i]) <= this.envelope.lateral(v)) lo = v; else hi = v;
       }
       spd[i] = lo;
@@ -71,7 +74,8 @@ export class TrajectorySearch {
     for (let i = n - 2; i >= 0; i--) {
       const v = spd[i + 1];
       const ul = Math.min(0.99, (v * v * Math.abs(curv[i + 1])) / Math.max(1, this.envelope.lateral(v)));
-      const dec = this.envelope.brake(v) * Math.sqrt(1 - ul * ul);
+      // Measured transient brake factor (ident): peak envelope is not realizable.
+      const dec = this.envelope.brake(v) * 0.9 * Math.sqrt(1 - ul * ul);
       spd[i] = Math.min(spd[i], Math.sqrt(v * v + 2 * dec * dist[i]));
     }
     for (let i = 1; i < n; i++) {
