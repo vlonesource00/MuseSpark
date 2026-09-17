@@ -164,9 +164,44 @@ export class MuseDriver {
     // reduction, but slowed entries into the pack and quintupled grinding
     // 146->887 contacts. Severe impacts are lateral turn-in convergence, not
     // longitudinal cannonballs — wrong mechanism. Tracked future work.)
+    // Overlap lateral separation: when truly alongside (|ds|<4.5, |dq|<3.4),
+    // shift the pursuit aim away from the rival to hold >=2.6m door-to-door.
+    // Speed untouched (no tuck, no boost): room lets the pace delta resolve
+    // the pair instead of grinding it. Persistent per-rival role with 3m band
+    // (no per-frame flapping of who is ahead).
+    let ovShift = 0;
+    {
+      let ovR = null, ovDs = 0, ovDq = 99;
+      for (const r of rivals) {
+        const ds = wrap(r.s - obs.ego.s + this.track.length * 1.5, this.track.length) - this.track.length * 0.5;
+        const dq = Math.abs(r.q - obs.ego.q);
+        if (Math.abs(ds) < 4.5 && dq < 3.4 && (!ovR || Math.abs(ds) < Math.abs(ovDs))) {
+          ovR = r; ovDs = ds; ovDq = dq;
+        }
+      }
+      if (!ovR || ovDq > 3.4) {
+        this.ovRole = null;
+      } else {
+        if (!this.ovRole || this.ovRole.id !== ovR.id) this.ovRole = { id: ovR.id, ahead: ovDs <= 0 };
+        else if (this.ovRole.ahead && ovDs > 3) this.ovRole = { id: ovR.id, ahead: false };
+        else if (!this.ovRole.ahead && ovDs < -3) this.ovRole = { id: ovR.id, ahead: true };
+        // Behind (rival nose ahead): give room on my side. Ahead: hold line.
+        if (!this.ovRole.ahead) {
+          const sdq = obs.ego.q - ovR.q;
+          const need = 2.6 - Math.abs(sdq);
+          if (need > 0) ovShift = Math.sign(sdq || 1) * Math.min(1.2, need);
+        }
+        this.overlapState = this.ovRole.ahead ? 'EDGE_AHEAD' : 'TUCK_BEHIND';
+      }
+      if (!this.ovRole) this.overlapState = null;
+    }
     // Pursuit steering.
     const lookahead = clamp(6 + car.speed * 0.45, 8, 34);
     const target = plan.at(obs.ego.s + lookahead);
+    if (ovShift) {
+      target.x += (target.nx ?? 0) * ovShift;
+      target.z += (target.nz ?? 0) * ovShift;
+    }
     const dx = target.x - car.x, dz = target.z - car.z;
     const lx = dx * Math.cos(car.yaw) - dz * Math.sin(car.yaw);
     const dist2 = dx * dx + dz * dz;

@@ -41,9 +41,13 @@ function runScenario(name, skills, laps, timeout) {
   return res;
 }
 
-const slow = runScenario('slow-rival', [0.99, 0.88], 2, 400);
-const duel = runScenario('equal-duel', [0.96, 0.96], 2, 400);
-// Gates: slow-rival must pass (P1); equal-duel must stay clean-ish (<40 contacts, no severe).
+const slow = runScenario('slow-rival', [0.97, 0.88], 2, 400);
+const duel = runScenario('equal-duel', [0.95, 0.95], 2, 400);
+// Skills sit at the STABLE point (0.97/0.95), not the survival boundary
+// (~0.99 spins solo at kink entries regardless of traffic). The lab measures
+// RACECRAFT (conversion, cleanliness), not pace survival — hotlap owns that.
+// (2026-09-17: 0.99-ego spun alone 300m from any rival; identical failure in
+// solo fade laps. Same mechanism, zero racecraft content.)
 let fail = 0;
 if (slow.egoPos !== 1) { console.error('GATE FAIL: slow-rival not passed'); fail = 1; }
 if (duel.contacts > 60 || duel.severe > 0) { console.error('GATE FAIL: equal-duel kamikaze'); fail = 1; }

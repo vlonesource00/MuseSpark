@@ -1,16 +1,20 @@
-# MuseSpark Racing — Milestones 1–5 Checkpoint
+# MuseSpark Racing — Execution-closure wave checkpoint
 
 Extreme autonomous racing AI on the Astra physical plant. All components live,
 wired, measured, tested. No physics advantages. No phantom brakes.
 
-- **Theoretical (global-opt):** 76.22s (Harbor GT)
-- **Realized (controlled):** **84.725s** valid (QUALIFYING hero lap) — M1 was 94.29
-- **SPRINT stint pace:** 86.17 best, 0.0 off across 3 laps (repeatable)
-- **Control gap:** 8.5s (was 18.1) — tracking solved as a bug class (off-line
-  equilibrium); remainder is genuine grip/profile usage
+- **Theoretical (global-opt):** 71.92s session line (T_TRANSIENT 72.72; pure T_GEOMETRIC 71.21)
+- **Realized (controlled):** **83.883s** valid (QUALIFYING) — M1 was 94.29
+- **SPRINT stint pace:** 83.83 best, 0.0 off across 3 laps (repeatable)
+- **Control gap:** ~11s vs transient-feasible plan (was 18.1 vs fantasy-76.2) —
+  remainder is entries + exits at true power, measured per-corner by audit
 - **Shared-host official:** **86.38s** (SPRINT, pin 8a9b6a9), 0 off/dmg/errors;
-  same-day Astra 78.77, pinned Supreme 78.34 (gap 7.6s, was ~11s)
-- **Shared-host official:** **89.82s** (SPRINT), 0 off/dmg/errors; same-day Astra 78.77, pinned Supreme 78.34
+  same-day Astra 78.77, pinned Supreme 78.34 (re-run pending at new pin)
+- **Phantom brakes:** 0 samples (unit + headless gates green)
+- **Perf:** 8-car 1.28ms/step (6.5× realtime) — PASS (MPC p95 ~2ms, deadline-guarded)
+- **Tests:** 29/29 green (model validation, MPC unit, thermal, wet, determinism, soak, phantom)
+- **Racecraft lab:** slow-rival P1 severe-0; equal-duel + 6-car contact cost tracked as open work
+- **GitHub:** https://github.com/vlonesource00/MuseSpark
 - **Phantom brakes:** 0 samples (unit + headless gates green)
 - **Perf:** 8-car 1.28ms/step (6.5× realtime) — PASS
 - **Tests:** 20/20 green (incl. wet, determinism, soak slice, thermal)
@@ -21,10 +25,13 @@ wired, measured, tested. No physics advantages. No phantom brakes.
 
 ```sh
 npm install
-npm test                 # 20 tests: unit + integration + phantom + thermal + wet + determinism + perf
-node tools/optimize-line.mjs
-node tools/headless-hotlap.mjs        # QUALIFYING by default (86.88 valid)
-node tools/delta-analysis.mjs         # 5m loss classes driving M2 work
+npm test                 # 29 tests: model validation, MPC unit, phantom, thermal, wet, determinism, perf
+node tools/optimize-line.mjs         # T_GEOMETRIC vs T_TRANSIENT accounting
+node tools/headless-hotlap.mjs [--mpc]  # QUALIFYING by default (83.88 sampling; --mpc = predictive lab)
+node tools/execution-gap.mjs [--laps N] # plan-vs-local-vs-actual audit + complex table + feasibility
+node tools/identify-model.mjs        # M_CONTROL identification vs M_PLANT
+node tools/mpc-corner.mjs            # MPC corner sandbox (fast weight iteration)
+node tools/delta-analysis.mjs        # 5m loss classes
 node tools/headless-race.mjs          # 6-car metrics + contact bins/frames
 node tools/racecraft-lab.mjs          # slow-rival / equal-duel gates
 node tools/soak.mjs                   # 8-car stint gates
@@ -36,21 +43,25 @@ npm run dev              # browser: DRIVE / AI HOTLAP / AI RACE / LAB / ENGINEER
 
 ## What works now
 
-Global multi-resolution time-optimal line, physical envelope (real forces),
-belief posteriors, persistent episodes + flank memory + blocked debt, 2-stage
-space-time search with swept occupancy, coupled MPCC with latched spatial brake
-events + combined-slip throttle gate, independent safety supervisor, multi-rate
-adaptive scheduler, telemetry, engineer overlay (strategy/maneuver/braking/
-physics/pace/attack/defense/beliefs/compute), headless determinism.
+Global multi-resolution time-optimal line (dense runtime-exact final word),
+identified reduced vehicle model, genuine coupled MPC (lab-grade) + preserved
+sampling baseline, physical envelope (real forces, unit-verified), belief
+posteriors, persistent episodes + flank memory + blocked debt, 2-stage
+space-time search with swept occupancy, causal spatial braking, independent
+safety supervisor, multi-rate adaptive scheduler, telemetry, engineer overlay
+(T-levels, loss source, strategy/maneuver/braking/physics/pace/compute),
+headless determinism.
 
 ## Honest weaknesses (tracked, gated)
 
-1. **Pace:** 86.88 vs 73.2 target (~11s off shared best on host physics).
-   Delta: MID-CORNER 5.5s, BRAKING 4.0s. Full-res line untrackable.
-2. **Pack racecraft:** 6-car frames 1917 (Supreme 12-car ref 926 — ~4x per car),
-   severe 16, trains collapse to ~140s/lap. Slow-rival converts (P1, severe 0)
-   but costs 1925 contacts; equal-duel severe open. Speed-only protocols
-   falsified (deadlock or ram); lateral resolution is the tracked fix.
+1. **Pace:** 83.88 vs 73.2 target (~8s off shared best on host physics).
+   Audit: entries (hot + wide at true power) + exits. Gates <82/<80/<79 OPEN.
+2. **MPC entries:** corner-capable with real trail braking, but full-lap entries
+   defeat it (target-capped vBase + barriers + stability envelope in place;
+   needs entry-line/braking coordination). Default stays sampling.
+3. **Pack racecraft:** 6-car frames ~1900 (Supreme 12-car ref 926), severe open.
+   Slow-rival converts (P1, severe 0) but costly; equal-duel severe open.
+   Lateral resolution is the tracked fix (untouched this wave, by mandate).
 3. **Visuals:** minimal three.js shell; physics already identical to host.
 4. **Done in M4:** soak gates, wet lap, determinism guard, racecraft lab,
    QUALIFYING/SPRINT/ENDURANCE differentiation, thermal adaptation.

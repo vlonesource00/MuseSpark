@@ -102,6 +102,79 @@ all speed-only protocols either deadlock or ram. Tracked future work.
 optimization) and M3 conversion cost (clean alongside→clear without grinding).
 No architecture churn without delta evidence.
 
+## Checkpoint 7 — Execution closure wave (2026-09-17): audit, identify, MPC
+
+### M2g audit (tools/execution-gap.mjs, committed)
+Station-domain (~3m) GLOBAL-plan vs LOCAL-trajectory vs ACTUAL comparison with
+13 loss classes + per-complex table (entry/apex/exit/+50/+100/+200) + transient-
+feasibility walk. Findings that redirected the wave:
+- Plan fantasy, measured: 108m with combined utilization u>1.0 (worst 1.89 @
+  hairpin s=864). Coarse-stencil aliasing confirmed: optimizer-internal vs
+  driven-line curvature ratios 0.34–1.98 by station (s=864: 1.98x under-read;
+  s=2250: 3x over-read). Steering rate is NOT binding (max 0.91 vs 1.35, 0m over).
+- Perpetual 0.45–0.8 partial braking (never full, never released): overspeed-
+  proportional pressure without required-decel feedforward drags zones long.
+- Pickup delays 33m+ after min-speed; exit +50m weak.
+- YAW_TRANSIENT 0.11s, STEERING_RATE 0, COMBINED_SLIP 0.01: transients are not
+  the gap — geometry/profile honesty + pickup are.
+
+### Identified M_CONTROL (tools/identify-model.mjs, src/muse/vehicle-model.js)
+Closed-loop headless experiments on the real plant, Harbor straight:
+- Steering actuator tau63 0.075s = plant rate 12 exact (1/12 s).
+- Bicycle LSQ (8 linear-window runs): Cf=89kN/rad, Cr=106kN/rad.
+- Yaw-buildup lag tau63 0.22s (tires take ~3x longer than steering).
+- Longitudinal force lag tau63 0.075s (wheel spin-up + TC + torque damp).
+- Steady full-brake / envelope peak = 0.90 (ABS + transfer lag) -> brakeReal.
+- Open-loop RMSE (lateral isolation): pos 0.06m@0.5s, 0.53m@1.0s; error is
+  longitudinal (ax-sensor lag), lateral near-perfect early. Horizon ≤1s honest.
+- Actuator has NO slew limit (measured 11 rad/s road): feasibility must come
+  from tire yaw response, not steer rate.
+- ENGINE UNIT FIX (the big one): engineForceAt returned axle TORQUE as force,
+  understating drive ~3x (found: plant pulls 8.44 vs predicted 3.96 at 21.7).
+  Corrected to torque/radius + traction cap with transfer fixed-point
+  (low gears are tire/TC-limited ~8.7, verified). Best-gear capped at the
+  plant's 7450 shift point. Consequence: theory 76.2 -> honest power; all
+  downstream targets sped up consistently.
+
+### T-level accounting (tools/optimize-line.mjs, session.transientLap)
+T_GEOMETRIC 71.21 / T_TRANSIENT 71.88 (skill 0.97 + brakeReal 0.9) / optimism
+0.67s. Session line: 71.92 / 72.72. Planner optimism is SMALL — the gap is
+execution, as suspected. Engineer shows GEO/TRANS/ACTUAL + loss source live.
+
+### Dense runtime-exact profile (global-opt denseProfile)
+Final word on a 1m grid with tight stencil = exactly what GlobalLine.at
+interpolates (the coarse ±9-15m stencil founded speeds on a smoothed ghost).
+Geometry search stays coarse (speed); speeds/zones come from dense.
+
+### Genuine coupled MPC (src/muse/predictive.js, lab-grade, default OFF)
+Gauss-Newton single shooting on the identified 7-state + force-lag model:
+joint steer + signed force, contouring/lag/speed/progress/slip/yaw/rate costs,
+slip-stability barriers (rear 0.75 transient headroom), corridor wall, warm-
+started (shifted U + persistent lambda + P-seed on regime change), 60Hz,
+5ms deadline with previous-solution fallback, NaN guards, causal brake gate
+shared with sampling, complementary force->pedal mapping. Bugs found by
+measurement and fixed: decision-space scaling (F froze), unsigned-speed
+reverse-driving optimum, lambda reset freeze, vBase without braking demand,
+launch degeneracy (sampling owns <12 m/s), steer authority envelope.
+Corner sandbox: real trail braking (1.0 -> 0.15 taper), progressive pickup,
+slip bounded. Compute: p95 ~1.6-2.3ms, deadline misses ~0, 8-car realtime kept.
+Full-lap entries still defeat it (hot + wide at new power levels) — OPEN,
+tracked below. Sampling preserved as baseline/fallback/regression reference
+(driver opts.controller, tools --mpc/--baseline). 4 MPC unit tests green.
+
+### Laps (this wave)
+- Sampling QUALIFYING 83.88 (off 3.26), SPRINT 83.83 (off 0.0). Was 84.73/86.17.
+- Gates <82/<80/<79: OPEN. Remaining gap is entries + exits at true power.
+- 29/29 tests, phantom 0, wet/determinism/soak-slice green, bridge parity
+  pace-exact (83.883 = native).
+
+### Parked with evidence (not abandoned)
+- Required-decel pedal feedforward (wrong apex horizon made it weak; urgency kept).
+- Brake follow-through hysteresis (extends trail into turn -> spins).
+- Uniform profile headroom (destabilized selection, 108s/off).
+- N=16 horizon (Euler yaw modes marginal at h=0.12; N=10 + target-capped vBase).
+- Straight anti-severe cut (wrong mechanism; lateral convergence is the killer).
+
 ## Checkpoint 6 — Line acquisition: 86.88 → 84.73 (2026-09-16)
 
 **Root cause (the big one):** the car spent 300m per lap 6-9m off the global

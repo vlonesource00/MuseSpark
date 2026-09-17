@@ -166,14 +166,15 @@ function frame(now) {
 STRATEGY ${m.type ?? '-'} / ${m.flank ?? '-'} commit ${(m.commit ?? 0).toFixed(1)}s
 ${drv.debug.explanation ?? ''}
 TURN IN/OUT q=${foc.lateral.toFixed(2)}m tgt=${drv.plan?.winner ? drv.plan.winner.apexQ.toFixed(2) : '-'}
-GLOBAL ${session.theoreticalLap.toFixed(2)}s | REALIZED ${foc.race.bestLap?.toFixed(2) ?? '-'}s | GAP ${foc.race.bestLap ? (foc.race.bestLap - session.theoreticalLap).toFixed(2) + 's' : '-'}
+GLOBAL ${session.theoreticalLap.toFixed(2)}s | TRANSIENT ${session.transientLap.toFixed(2)}s | REALIZED ${foc.race.bestLap?.toFixed(2) ?? '-'}s | GAP ${foc.race.bestLap ? (foc.race.bestLap - session.theoreticalLap).toFixed(2) + 's' : '-'}
+LOSS ${drv.debug.lossSource ?? '-'} (optimism +${((drv.debug.tLevels?.optimism) ?? 0).toFixed(2)}s / ctrl gap ${drv.debug.tLevels?.controlGap ?? '-'}s)
 BRAKING src=${drv.brakeSource} start=${drv.controller.brakeEvent?.startS.toFixed(0) ?? '-'} rel=${drv.controller.brakeEvent?.releaseS.toFixed(0) ?? '-'} apex=${drv.controller.brakeEvent?.apexS.toFixed(0) ?? '-'}
 PHYSICS lat=${(foc.ay / 9.81).toFixed(2)}g long=${(foc.ax / 9.81).toFixed(2)}g slip=${(Math.atan2(foc.v, Math.max(4, foc.u)) * 57.3).toFixed(1)}deg yaw=${(foc.yawRate).toFixed(2)}
 PACE tgt=${drv.targetSpeed.toFixed(1)}m/s debt=${drv.strategy.blockedDebt.toFixed(2)}s
 ATTACK tgt=${m.targetId ?? '-'} pass=${((m.passP ?? 0) * 100).toFixed(0)}% risk=${m.risk ?? '-'}
 DEFENSE ${drv.strategy.defense.plan} vs ${drv.strategy.defense.threatId ?? '-'}
 BELIEFS ${(() => { const b = drv.beliefs.map.get(m.targetId); return b ? Object.entries(b.posterior).map(([k, v]) => k.slice(0, 4) + ' ' + (v * 100).toFixed(0)).join(' ') : 'clear air'; })()}
-COMPUTE strat=${stratMs.toFixed(2)}ms traj=${trajMs.toFixed(2)}ms mpc=${drv.controller.ms.toFixed(2)}ms p95=${drv.debug.ms?.p95?.toFixed(2) ?? '-'} detail=${drv.debug.ms?.detail} cand=${drv.debug.ms?.screened}/${drv.debug.ms?.finalists}
+COMPUTE strat=${stratMs.toFixed(2)}ms traj=${trajMs.toFixed(2)}ms samp=${drv.controller.ms.toFixed(2)}ms pred=${drv.debug.mpc ? `it${drv.debug.mpc.iters} ${drv.debug.mpc.ms.toFixed(2)}ms miss${drv.mpc.stats.misses}/fb${drv.mpc.stats.fallbacks}` : '-'} p95=${drv.debug.ms?.p95?.toFixed(2) ?? '-'} detail=${drv.debug.ms?.detail} cand=${drv.debug.ms?.screened}/${drv.debug.ms?.finalists}
 SAFETY ${drv.debug.safety?.reason} activations=${drv.safety.activations}`;
   } else engEl.hidden = true;
   renderer.render(scene, camera);
