@@ -1,15 +1,14 @@
-# MuseSpark Racing — Execution-closure wave checkpoint
+# MuseSpark Racing — Closure-wave checkpoint (GATE 1 Murrayfield)
 
 Extreme autonomous racing AI on the Astra physical plant. All components live,
 wired, measured, tested. No physics advantages. No phantom brakes.
 
-- **Theoretical (global-opt):** 71.92s session line (T_TRANSIENT 72.72; pure T_GEOMETRIC 71.21)
-- **Realized (controlled):** **83.883s** valid (QUALIFYING) — M1 was 94.29
+- **Theoretical (global-opt):** 71.92s session line (T_PROFILE 72.72; pure T_GEOMETRIC 71.21; T_DYNAMIC≈77.8 model-ideal frontier)
+- **Realized (controlled):** **81.967s** valid, 0.00 off (QUALIFYING @0.985) — M1 was 94.29
 - **SPRINT stint pace:** 83.83 best, 0.0 off across 3 laps (repeatable)
-- **Control gap:** ~11s vs transient-feasible plan (was 18.1 vs fantasy-76.2) —
-  remainder is entries + exits at true power, measured per-corner by audit
-- **Shared-host official:** **82.82s** (SPRINT, pin 943fd62), 0 off/dmg/errors;
-  same-day Astra 78.77, pinned Supreme 78.34 (GATE <82 missed by 0.8s)
+- **Control gap:** ~10s vs PROFILE, ~4s vs DYNAMIC-feasible — entries + pickup
+- **Shared-host official:** **82.82s** (SPRINT, pin fb7e16e, confirmed ×2 deterministic), 0 off/dmg/errors;
+  same-day Astra 78.77, pinned Supreme 78.34 (GATE <82 open by 0.8s)
 - **Phantom brakes:** 0 samples (unit + headless gates green)
 - **Perf:** 8-car 1.28ms/step (6.5× realtime) — PASS (MPC p95 ~2ms, deadline-guarded)
 - **Tests:** 29/29 green (model validation, MPC unit, thermal, wet, determinism, soak, phantom)

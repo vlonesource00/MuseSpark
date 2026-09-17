@@ -188,6 +188,38 @@ tracked below. Sampling preserved as baseline/fallback/regression reference
 - Pack results are chaos-amplified (2x swings from small changes, deterministic
   system): future pack A/B requires multi-scenario averaging, never single runs.
 
+## Checkpoint 8 — Alignment + T_DYNAMIC + GATE 1 (2026-09-17)
+
+- T-levels corrected: GEOMETRIC 71.21 / PROFILE 71.88 / DYNAMIC≈77.8 (below) /
+  ACTUAL 81.97. "Planner optimism 0.67s" retired as a final claim.
+- Re-audit at HEAD (+ENTRY class): dense profile killed plan fantasy
+  (u>1.0: 108m -> 0m, worst 1.89 -> 0.92). Remaining gap is execution.
+- SpatialReferenceGovernor: one spatial future (q/kappa/vAllow/target/
+  requiredDecel/brakeCause/pickup/pose/linePose) for both controllers.
+  Sampling refactor verified behavior-identical (deterministic replay
+  83.883/36337). MPC consumes V_ALLOW + brakeCause + linePose (scalar cap era over).
+- T_DYNAMIC via model-ideal skill sweep: 0.93-profile holds at **77.77** nearly
+  clean (0.90 -> 80.17, 0.995 -> 84.98 dirty). Feasible frontier ≈ 78 — the
+  physical target zone, matching Supreme territory. Teacher (N=16/12-it/∞deadline)
+  as pure compute ablation: entries still fail → not a compute problem.
+- MPC surgery continued: RTI hold fix (stale-U0 masked solver state), Huber
+  bounds (hot-reference dominance), brake-distribution model (front wash
+  invisible to rear-only circle), steer envelope + speed-scheduled floor,
+  stability TC (yaw-expectation cut), reactive vBase caps, NaN guards,
+  persistent-lambda/diag/comp instrumentation, mpc-corner + entry evidence.
+  N=16 retried with fixed numerics (substeps): stable costs, entries still fail
+  -> back to N=10. Corner sandbox keeps passing (trail braking real).
+- GATE 1 LOCAL: QUALIFYING skill 0.985 (measured interior optimum; 0.995 fades,
+  neighbors 81.8-82.6) -> **81.967 valid, 0.00 off**, phantom 0, 29/29.
+- Official shared-host (pin fb7e16e): **82.82** again to 4 decimals (deterministic
+  confirmation). GATE <82 officially open by 0.8s; <80 needs entries + pickup.
+- Process incident: a batch of governor-wiring edits reported success but never
+  reached disk (caught by grep-verify before commit; behavior "evidence" from
+  that window is void). Fix: verify-every-edit + immediate small commits —
+  practiced for the rest of the wave without recurrence.
+- M3b: ovRole scaffold only. Corridor ownership + pairwise matrix + 5-10
+  rotation stats + belief Brier remain a designed, unstarted wave (gates first).
+
 ## Checkpoint 6 — Line acquisition: 86.88 → 84.73 (2026-09-16)
 
 **Root cause (the big one):** the car spent 300m per lap 6-9m off the global
