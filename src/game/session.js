@@ -55,8 +55,8 @@ export class MuseSession {
     this.dynamicLap = opts.dynamicLap ?? null;
     this.cars = GRID.map(([name, color], id) => new Vehicle(id, name, color, this.mixed ? CLASS_IDS[(id + CLASS_IDS.indexOf(this.classId)) % CLASS_IDS.length] : this.classId));
     this.drivers = this.cars.map((c, i) => new MuseDriver(i, track, this.line, createEnvelope(c.spec, { fuel: 20 }), {
-      skill: opts.skills ? opts.skills[i % opts.skills.length] : ((opts.driverMode ?? 'SPRINT') === 'QUALIFYING' ? 0.995 : 0.955 + (i % 4) * 0.008), aggression: this.aggression, mode: opts.driverMode ?? 'SPRINT', spec: c.spec,
-      controller: opts.controller ?? 'sampling', profileLap: built.profileLap ?? built.line.theoreticalLap, dynamicLap: opts.dynamicLap ?? null
+      skill: opts.skills ? opts.skills[i % opts.skills.length] : ((opts.driverMode ?? 'SPRINT') === 'QUALIFYING' ? 0.985 : 0.955 + (i % 4) * 0.008), aggression: this.aggression, mode: opts.driverMode ?? 'SPRINT', spec: c.spec,
+      controller: opts.controller ?? 'sampling', profileLap: built.profileLap ?? built.line.theoreticalLap, dynamicLap: opts.dynamicLap ?? null, mpc: opts.mpc ?? {}
     }));
     this.player = this.cars[0];
     this.phase = 'menu'; this.time = 0; this.countdown = 0; this.contacts = 0; this.autopilot = true;

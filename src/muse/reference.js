@@ -54,9 +54,9 @@ export function createGovernor({ track, line, envelope }) {
     // from which the profile's own braking still makes every downstream
     // station — not just the single slowest apex. Apex-only formulation
     // underconstrains entry kinks (hairpin entry: allow said 50 where the
-    // line knew 29, car arrived +20 hot and slid). dec=9 default.
-    // Returns Infinity when nothing constrains (pure apex authority — the
-    // line cap lives in vLine/target; callers needing finiteness substitute).
+    // line knew 29, car arrived +20 hot and slid). Default 9.0: dec 10 tried
+    // 2026-09-17 with zero measured effect anywhere (the line binds, not
+    // allow). MPC experiments override via prm.
     const w = prm.winner;
     if (!w?.speed) return Infinity;
     const dec = prm.dec ?? 9.0;
