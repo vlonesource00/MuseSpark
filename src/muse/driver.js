@@ -12,6 +12,7 @@ import { SafetySupervisor } from './safety.js';
 import { Scheduler } from './scheduler.js';
 import { Telemetry } from './telemetry.js';
 import { observationFromGame, applyCommand, thermalMargin } from './types.js';
+import { createGovernor } from './reference.js';
 
 export class MuseDriver {
   constructor(id, track, line, envelope, opts = {}) {
@@ -27,6 +28,7 @@ export class MuseDriver {
     this.beliefs = new BeliefBank(track.length);
     this.strategy = new StrategyBrain(track.length, { aggression: opts.aggression ?? 0.72, mode: this.mode });
     this.search = new TrajectorySearch(track, line, envelope);
+    this.gov = createGovernor({ track, line, envelope }); // ONE spatial future
     this.controller = new CoupledController(opts.spec); // sampling baseline: preserved, A/B + fallback reference
     this.model = createVehicleModel(opts.spec, envelope);
     this.mpc = new PredictiveController(opts.spec, envelope, this.model, opts.mpc ?? {});
@@ -135,32 +137,17 @@ export class MuseDriver {
       this.planAge += dt;
     }
     const plan = this.currentPlan();
-    // Target speed: winner profile + global skill + wet factor + control margin.
-    // 0.97 margin (was 0.94): theory 76s must be reachable; safety + combined
-    // gating already protect the corner. Braking-limited (late-hard-brake):
-    // target = min_ahead sqrt(v_apex^2 + 2*dec*dist), NOT min speed in window.
-    const aheadS = obs.ego.s + Math.max(4, car.speed * 0.2);
+    // Target speed from the SHARED spatial governor (Phase F): identical math
+    // to the inline version it replaces (line-lookahead + allow-profile).
+    // Controllers may arbitrate (safety/slip caps below) but never recompute
+    // authority. Verified behavior-identical by deterministic replay.
     // Thermal adaptation: hot/worn rubber gets a smaller envelope slice.
     const margin = this.paceMargin * thermalMargin(obs.ego.tyreMax ?? 70, obs.ego.tyreWear ?? 0);
-    let targetSpeed = this.line.speedAt(aheadS) * this.skill * margin * (1 - this.track.wetness * 0.24);
-    // Trajectory braking target: pure braking-distance limit (late-hard-brake).
-    // target = min_ahead sqrt(apexV^2 + 2*dec*ds). minNear window REMOVED with
-    // the latch (2026-09-16): the latch pinned a stale apex 200m ahead and the
-    // window+fallback guards conspired to sail past corners. Pure-function
-    // braking on both sides now: target and pedal agree by construction.
-    if (this.plan?.winner) {
-      const w = this.plan.winner;
-      const dec = 9.0;
-      let limited = Infinity;
-      for (let i = 0; i < w.points.length; i++) {
-        const ds = wrap(w.points[i].s - obs.ego.s + this.track.length * 1.5, this.track.length) - this.track.length * 0.5;
-        if (ds < -5 || ds > 170) continue;
-        const apexV = w.speed[i] * this.skill * margin;
-        const allow = Math.sqrt(apexV * apexV + 2 * dec * Math.max(0, ds));
-        if (allow < limited) limited = allow;
-      }
-      if (limited < Infinity) targetSpeed = Math.min(targetSpeed, limited);
-    }
+    const govPrm = {
+      winner: this.plan?.winner ?? null, skill: this.skill, margin,
+      wet: this.track.wetness ?? 0, v: car.speed, dec: 9.0
+    };
+    let targetSpeed = this.gov.target(obs.ego.s, car.speed, govPrm);
     // (Straight-line anti-severe target cut REMOVED 2026-09-16: no severe
     // reduction, but slowed entries into the pack and quintupled grinding
     // 146->887 contacts. Severe impacts are lateral turn-in convergence, not
