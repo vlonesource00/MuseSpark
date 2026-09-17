@@ -8,16 +8,11 @@ wired, measured, tested. No physics advantages. No phantom brakes.
 - **SPRINT stint pace:** 83.83 best, 0.0 off across 3 laps (repeatable)
 - **Control gap:** ~11s vs transient-feasible plan (was 18.1 vs fantasy-76.2) —
   remainder is entries + exits at true power, measured per-corner by audit
-- **Shared-host official:** **86.38s** (SPRINT, pin 8a9b6a9), 0 off/dmg/errors;
-  same-day Astra 78.77, pinned Supreme 78.34 (re-run pending at new pin)
+- **Shared-host official:** **82.82s** (SPRINT, pin 943fd62), 0 off/dmg/errors;
+  same-day Astra 78.77, pinned Supreme 78.34 (GATE <82 missed by 0.8s)
 - **Phantom brakes:** 0 samples (unit + headless gates green)
 - **Perf:** 8-car 1.28ms/step (6.5× realtime) — PASS (MPC p95 ~2ms, deadline-guarded)
 - **Tests:** 29/29 green (model validation, MPC unit, thermal, wet, determinism, soak, phantom)
-- **Racecraft lab:** slow-rival P1 severe-0; equal-duel + 6-car contact cost tracked as open work
-- **GitHub:** https://github.com/vlonesource00/MuseSpark
-- **Phantom brakes:** 0 samples (unit + headless gates green)
-- **Perf:** 8-car 1.28ms/step (6.5× realtime) — PASS
-- **Tests:** 20/20 green (incl. wet, determinism, soak slice, thermal)
 - **Racecraft lab:** slow-rival P1 severe-0; equal-duel + 6-car contact cost tracked as open work
 - **GitHub:** https://github.com/vlonesource00/MuseSpark
 

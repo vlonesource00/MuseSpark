@@ -178,6 +178,8 @@ tracked below. Sampling preserved as baseline/fallback/regression reference
 ### Wave close-out (2026-09-17, verified)
 - Sampling QUALIFYING 83.883 (off 3.26), SPRINT 83.83 (off 0.0). Theory 71.92,
   transient 72.72. 29/29 tests, phantom 0, bridge parity pace-exact.
+- Official shared-host SPRINT at pin 943fd62: **82.82**, 0/0/0 (was 86.38;
+  GATE <82 missed by 0.8s). Same-day Astra 78.77, Supreme pinned 78.34.
 - MPC: all known solver bugs fixed (scaling, sign, lambda persistence, vBase,
   launch guard, steer envelope, brake-gate starvation); corner sandbox shows
   genuine trail-braking; full-lap entries still open. Default stays sampling.
